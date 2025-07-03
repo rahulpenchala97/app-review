@@ -39,20 +39,20 @@ const ProfilePage: React.FC = () => {
         <div className="flex items-center space-x-6">
           <div className="w-20 h-20 bg-primary-100 rounded-full flex items-center justify-center">
             <span className="text-2xl font-bold text-primary-600">
-              {user.first_name.charAt(0)}{user.last_name.charAt(0)}
+              {(user.first_name || '').charAt(0)}{(user.last_name || '').charAt(0)}
             </span>
           </div>
           
           <div className="flex-1">
             <h1 className="text-2xl font-bold text-gray-900">
-              {user.first_name} {user.last_name}
+              {user.first_name || ''} {user.last_name || ''}
             </h1>
             <p className="text-gray-600">@{user.username}</p>
             <p className="text-gray-500">{user.email}</p>
             
             <div className="flex items-center space-x-4 mt-3">
               <span className="text-sm text-gray-600">
-                Member since {new Date(user.date_joined).toLocaleDateString()}
+                Member since {user.created_at ? new Date(user.created_at).toLocaleDateString() : 'Unknown'}
               </span>
               
               {user.is_supervisor && (
@@ -98,7 +98,7 @@ const ProfilePage: React.FC = () => {
             
             <div className="text-center">
               <div className="text-3xl font-bold text-gray-600">
-                {stats.average_rating.toFixed(1)}★
+                {stats.average_rating != null ? stats.average_rating.toFixed(1) : '0.0'}★
               </div>
               <div className="text-sm text-gray-600 mt-1">Avg Rating</div>
             </div>

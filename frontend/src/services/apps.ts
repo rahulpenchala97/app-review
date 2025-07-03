@@ -11,7 +11,7 @@ export interface App {
   google_play_url?: string;
   release_date?: string;
   size_mb: number;
-  average_rating: number;
+  average_rating: number | null;
   total_ratings: number;
   tags: string[];
   created_at: string;
@@ -25,7 +25,7 @@ export interface AppSuggestion {
   name: string;
   developer: string;
   category: string;
-  average_rating: number;
+  average_rating: number | null;
   total_ratings: number;
   created_at: string;
 }

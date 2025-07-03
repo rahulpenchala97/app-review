@@ -17,22 +17,30 @@ class AppListSerializer(serializers.ModelSerializer):
 class ReviewSummarySerializer(serializers.ModelSerializer):
     """Serializer for review summary in app detail"""
     username = serializers.CharField(source='user.username', read_only=True)
+    user = serializers.SerializerMethodField()
     
     class Meta:
         model = Review
         fields = [
             'id', 'title', 'content', 'rating', 
-            'username', 'created_at'
+            'username', 'user', 'created_at', 'status', 'tags'
         ]
+    
+    def get_user(self, obj):
+        if obj.user:
+            return {
+                'id': obj.user.id,
+                'username': obj.user.username,
+                'first_name': obj.user.first_name or '',
+                'last_name': obj.user.last_name or '',
+                'email': obj.user.email or ''
+            }
+        return None
 
 
 class AppDetailSerializer(serializers.ModelSerializer):
     """Detailed serializer for app with reviews"""
-    approved_reviews = ReviewSummarySerializer(
-        source='reviews.filter(status="approved")', 
-        many=True, 
-        read_only=True
-    )
+    approved_reviews = serializers.SerializerMethodField()
     approved_reviews_count = serializers.SerializerMethodField()
     
     class Meta:
@@ -47,6 +55,10 @@ class AppDetailSerializer(serializers.ModelSerializer):
     
     def get_approved_reviews_count(self, obj):
         return obj.get_approved_reviews_count()
+    
+    def get_approved_reviews(self, obj):
+        approved_reviews = obj.reviews.filter(status='approved')
+        return ReviewSummarySerializer(approved_reviews, many=True).data
     
     def to_representation(self, instance):
         """Custom representation to get approved reviews correctly"""

@@ -18,7 +18,7 @@ const HomePage: React.FC = () => {
         
         // Get top 6 apps by average_rating for featured section
         const sortedApps = appsData
-          .sort((a, b) => b.average_rating - a.average_rating)
+          .sort((a, b) => (b.average_rating ?? 0) - (a.average_rating ?? 0))
           .slice(0, 6);
         
         setFeaturedApps(sortedApps);
@@ -99,7 +99,7 @@ const HomePage: React.FC = () => {
                   <div className="flex items-center">
                     <span className="text-yellow-400">★</span>
                     <span className="text-sm font-medium text-gray-900 ml-1">
-                      {app.average_rating.toFixed(1)}
+                      {app.average_rating != null ? app.average_rating.toFixed(1) : '0.0'}
                     </span>
                   </div>
                   <span className="text-sm text-gray-500">

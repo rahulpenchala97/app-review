@@ -59,11 +59,13 @@ const ReviewCard: React.FC<ReviewCardProps> = ({
       <div className="flex items-start justify-between mb-3">
         <div className="flex items-center space-x-4">
           <div>
-            <h4 className="font-semibold text-gray-900">{review.title}</h4>
+            <h4 className="font-semibold text-gray-900">{review.title || 'No title'}</h4>
             <div className="flex items-center space-x-2 mt-1">
               <div className="flex">{renderStars(review.rating)}</div>
               <span className="text-sm text-gray-500">
-                by {review.user.first_name} {review.user.last_name}
+                by {review.user?.first_name && review.user?.last_name 
+                  ? `${review.user.first_name} ${review.user.last_name}`
+                  : review.username || review.user?.username || 'Anonymous'}
               </span>
               <span className="text-sm text-gray-400">
                 {new Date(review.created_at).toLocaleDateString()}
@@ -81,7 +83,7 @@ const ReviewCard: React.FC<ReviewCardProps> = ({
         {review.content}
       </p>
 
-      {review.tags.length > 0 && (
+      {review.tags && review.tags.length > 0 && (
         <div className="flex flex-wrap gap-2 mb-4">
           {review.tags.map((tag, index) => (
             <span
@@ -97,7 +99,9 @@ const ReviewCard: React.FC<ReviewCardProps> = ({
       {review.moderated_by && review.moderated_at && (
         <div className="text-sm text-gray-500 border-t pt-3">
           <p>
-            Moderated by {review.moderated_by.first_name} {review.moderated_by.last_name} on{' '}
+            Moderated by {review.moderated_by.first_name && review.moderated_by.last_name
+              ? `${review.moderated_by.first_name} ${review.moderated_by.last_name}`
+              : review.moderated_by.username || 'Unknown'} on{' '}
             {new Date(review.moderated_at).toLocaleDateString()}
           </p>
           {review.moderation_notes && (

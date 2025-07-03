@@ -73,6 +73,14 @@ app-review/
    - Backend API: http://localhost:8000
    - Admin Panel: http://localhost:8000/admin (admin/admin123)
 
+5. **Import CSV data (optional - already includes full dataset):**
+   ```bash
+   # The system comes with 9,662 apps and 7,591 reviews pre-imported
+   # To re-import or update data:
+   cd backend
+   python manage.py import_csv_data --clear-existing
+   ```
+
 ### Option 2: Docker Setup (Full Stack)
 
 ```bash
@@ -126,6 +134,41 @@ docker-compose -f docker-compose.prod.yml up -d --build
 
 ### Users
 - `GET /api/users/profile/` - User profile
+
+## 📊 CSV Data Import
+
+The system supports importing real Google Play Store data from CSV files:
+
+```bash
+# Import Google Play Store apps and reviews
+python manage.py import_csv_data
+
+# Import with options
+python manage.py import_csv_data --clear-existing --limit 1000
+```
+
+**Imported Dataset:**
+- **9,662 apps** across 36 categories (Family, Games, Tools, Business, Medical, etc.)
+- **7,591 reviews** with sentiment analysis and ratings
+- **Real Google Play Store data** with metadata, ratings, and user feedback
+- **Smart data processing** (size parsing, date conversion, sentiment mapping)
+- **Duplicate handling** and error recovery
+
+**Top Categories:**
+- Family: 1,906 apps
+- Games: 926 apps  
+- Tools: 829 apps
+- Business: 419 apps
+- Medical: 396 apps
+
+**Rating Distribution:**
+- ⭐ (1): 196 reviews
+- ⭐⭐ (2): 1,491 reviews
+- ⭐⭐⭐ (3): 926 reviews
+- ⭐⭐⭐⭐ (4): 3,890 reviews
+- ⭐⭐⭐⭐⭐ (5): 1,088 reviews
+
+See `backend/CSV_IMPORT_GUIDE.md` for detailed instructions.
 
 ## 🛠️ Technology Stack
 

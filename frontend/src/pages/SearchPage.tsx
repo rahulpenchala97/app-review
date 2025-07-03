@@ -132,12 +132,6 @@ const SearchPage: React.FC = () => {
     handleSearch(query, newCategory);
   };
 
-  const handleSuggestionClick = (suggestion: AppSuggestion) => {
-    setQuery(suggestion.name);
-    setShowSuggestions(false);
-    handleSearch(suggestion.name, category);
-  };
-
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     handleSearch();
@@ -174,15 +168,15 @@ const SearchPage: React.FC = () => {
               {showSuggestions && suggestions.length > 0 && (
                 <div className="absolute z-10 w-full mt-1 bg-white border border-gray-300 rounded-md shadow-lg max-h-60 overflow-y-auto">
                   {suggestions.map((suggestion) => (
-                    <button
+                    <Link
                       key={suggestion.id}
-                      type="button"
-                      onClick={() => handleSuggestionClick(suggestion)}
-                      className="w-full px-4 py-2 text-left hover:bg-gray-50 focus:bg-gray-50 focus:outline-none"
+                      to={`/apps/${suggestion.id}`}
+                      onClick={() => setShowSuggestions(false)}
+                      className="block w-full px-4 py-2 text-left hover:bg-gray-50 focus:bg-gray-50 focus:outline-none"
                     >
                       <div className="font-medium text-gray-900">{suggestion.name}</div>
                       <div className="text-sm text-gray-500">{suggestion.category}</div>
-                    </button>
+                    </Link>
                   ))}
                 </div>
               )}
@@ -268,7 +262,7 @@ const SearchPage: React.FC = () => {
                     <div className="flex items-center">
                       <span className="text-yellow-400">★</span>
                       <span className="text-sm font-medium text-gray-900 ml-1">
-                        {app.average_rating.toFixed(1)}
+                        {app.average_rating != null ? app.average_rating.toFixed(1) : '0.0'}
                       </span>
                     </div>
                     <span className="text-sm text-gray-500">

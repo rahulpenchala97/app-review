@@ -96,7 +96,7 @@ const AppDetailPage: React.FC = () => {
               <div className="flex items-center">
                 <span className="text-yellow-400 text-xl">★</span>
                 <span className="text-lg font-semibold text-gray-900 ml-1">
-                  {app.average_rating.toFixed(1)}
+                  {app.average_rating != null ? app.average_rating.toFixed(1) : '0.0'}
                 </span>
                 <span className="text-gray-500 ml-1">
                   ({app.total_ratings} reviews)

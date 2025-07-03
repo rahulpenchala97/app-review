@@ -5,11 +5,12 @@ export interface Review {
   id: number;
   app: number;
   app_name: string;
-  user: User;
-  title: string;
+  user: User | null;
+  username?: string;
+  title: string | null;
   content: string;
   rating: number;
-  tags: string[];
+  tags?: string[];
   status: 'pending' | 'approved' | 'rejected';
   created_at: string;
   updated_at: string;
@@ -31,7 +32,7 @@ export interface ReviewStats {
   pending_reviews: number;
   approved_reviews: number;
   rejected_reviews: number;
-  average_rating: number;
+  average_rating: number | null;
 }
 
 export interface ModerateReviewData {
