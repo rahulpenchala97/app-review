@@ -1,449 +1,149 @@
 # App Review System
 
-A comprehensive Django REST API application for mobile app reviews with JWT authentication, search functionality, and supervisor approval workflow.
+A comprehensive full-stack application for mobile app reviews with Django REST Framework backend and React TypeScript frontend.
 
-## Features
+## 🚀 Features
 
-### 🔍 **Search Functionality**
-- **Auto-suggestions**: Type 3+ characters to get app name suggestions using `icontains`
-- **Full Search**: Submit search to get results based on text similarity using `difflib.get_close_matches`
-- **Fallback Search**: Falls back to `icontains` search across name, developer, and description
+### Backend (Django REST API)
+- **🔍 Smart Search**: Auto-suggestions and full-text search with `difflib.get_close_matches`
+- **📱 App Management**: Complete CRUD operations with rich metadata
+- **⭐ Review System**: User reviews with ratings, moderation workflow
+- **👨‍💼 Supervisor Approval**: Role-based review moderation
+- **🔐 JWT Authentication**: Secure user authentication and authorization
+- **🐳 Docker Support**: Complete containerized deployment
 
-### 📱 **App Management**
-- Complete CRUD operations for mobile apps
-- Rich metadata support (developer, category, ratings, etc.)
-- Extensible design with JSON fields for future features
-- App categorization and developer filtering
+### Frontend (React TypeScript)
+- **🎨 Modern UI**: Clean, responsive design with Tailwind CSS
+- **🔍 Real-time Search**: Live suggestions and advanced filtering
+- **📊 User Dashboard**: Personal review management and statistics
+- **👮 Moderation Interface**: Supervisor tools for content review
+- **📱 Mobile-first**: Responsive design for all devices
+- **⚡ Fast Navigation**: Client-side routing with React Router
 
-### ⭐ **Review System**
-- Authenticated users can submit reviews
-- One review per user per app
-- Reviews start with "pending" status
-- Star ratings (1-5) with optional title and content
-- Extensible design for future features (sentiment analysis, helpful votes)
+## 🏗️ Architecture
 
-### 👨‍💼 **Supervisor Approval Workflow**
-- Users in "supervisors" group can moderate reviews
-- Approve or reject pending reviews with reasons
-- Automatic rating updates when reviews are approved
-- Comprehensive moderation statistics
-
-### 🔐 **JWT Authentication**
-- User registration and login
-- JWT access and refresh tokens
-- Profile management with extensible user profiles
-- Password change functionality
-
-### 🐳 **Docker Support**
-- Complete Docker setup with PostgreSQL
-- Development-ready docker-compose configuration
-- Automated database setup and migrations
-
-## Quick Start
-
-### Prerequisites
-- Python 3.10+
-- PostgreSQL (for production) or use Docker
-- Git
-
-### Development Setup
-
-1. **Clone the repository**
-```bash
-git clone <repository-url>
-cd app-review
-```
-
-2. **Set up virtual environment**
-```bash
-python3 -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
-```
-
-3. **Install dependencies**
-```bash
-pip install -r requirements.txt
-```
-
-4. **Configure environment**
-```bash
-cp .env.example .env
-# Edit .env with your settings
-```
-
-5. **Run migrations and setup data**
-```bash
-python manage.py migrate
-python manage.py setup_data
-```
-
-6. **Start development server**
-```bash
-python manage.py runserver
-```
-
-### Docker Setup
-
-1. **Build and run with Docker Compose**
-```bash
-docker-compose up --build
-```
-
-2. **The application will be available at:**
-- API: http://localhost:8000
-- Admin: http://localhost:8000/admin
-
-3. **Default credentials:**
-- Username: `admin`
-- Password: `admin123`
-
-## API Documentation
-
-### Base URL
-```
-http://localhost:8000/api/
-```
-
-### Authentication Endpoints
-
-#### Register User
-```http
-POST /api/auth/register/
-Content-Type: application/json
-
-{
-  "username": "testuser",
-  "email": "test@example.com",
-  "password": "password123",
-  "password_confirm": "password123",
-  "first_name": "Test",
-  "last_name": "User"
-}
-```
-
-#### Login
-```http
-POST /api/auth/login/
-Content-Type: application/json
-
-{
-  "username": "testuser",
-  "password": "password123"
-}
-```
-
-#### Refresh Token
-```http
-POST /api/auth/token/refresh/
-Content-Type: application/json
-
-{
-  "refresh": "your-refresh-token"
-}
-```
-
-### App Endpoints
-
-#### Search Suggestions (3+ characters)
-```http
-GET /api/apps/search/suggestions/?q=whats
-```
-
-#### Full Search
-```http
-GET /api/apps/search/?q=messaging app
-```
-
-#### List Apps
-```http
-GET /api/apps/
-GET /api/apps/?category=Communication
-GET /api/apps/?developer=Meta
-GET /api/apps/?order_by=-average_rating
-```
-
-#### App Detail
-```http
-GET /api/apps/1/
-```
-
-#### Create App (Authenticated)
-```http
-POST /api/apps/create/
-Authorization: Bearer your-access-token
-Content-Type: application/json
-
-{
-  "name": "My Awesome App",
-  "description": "An amazing mobile application",
-  "developer": "My Company",
-  "category": "Productivity",
-  "tags": ["productivity", "utility"]
-}
-```
-
-### Review Endpoints
-
-#### Submit Review (Authenticated)
-```http
-POST /api/reviews/create/
-Authorization: Bearer your-access-token
-Content-Type: application/json
-
-{
-  "app": 1,
-  "title": "Great app!",
-  "content": "I really love this application. It's very user-friendly.",
-  "rating": 5,
-  "tags": ["excellent", "user-friendly"]
-}
-```
-
-#### Get My Reviews
-```http
-GET /api/reviews/my-reviews/
-Authorization: Bearer your-access-token
-```
-
-#### Update Review (Pending only)
-```http
-PUT /api/reviews/1/
-Authorization: Bearer your-access-token
-Content-Type: application/json
-
-{
-  "title": "Updated review title",
-  "content": "Updated review content",
-  "rating": 4
-}
-```
-
-### Supervisor Endpoints
-
-#### Get Pending Reviews (Supervisors only)
-```http
-GET /api/reviews/pending/
-Authorization: Bearer supervisor-access-token
-```
-
-#### Approve Review
-```http
-POST /api/reviews/1/moderate/
-Authorization: Bearer supervisor-access-token
-Content-Type: application/json
-
-{
-  "action": "approve"
-}
-```
-
-#### Reject Review
-```http
-POST /api/reviews/1/moderate/
-Authorization: Bearer supervisor-access-token
-Content-Type: application/json
-
-{
-  "action": "reject",
-  "rejection_reason": "Inappropriate content"
-}
-```
-
-### User Profile Endpoints
-
-#### Get Profile
-```http
-GET /api/users/profile/
-Authorization: Bearer your-access-token
-```
-
-#### Update Profile
-```http
-PUT /api/users/profile/update/
-Authorization: Bearer your-access-token
-Content-Type: application/json
-
-{
-  "first_name": "Updated",
-  "last_name": "Name",
-  "bio": "Updated bio",
-  "location": "New York"
-}
-```
-
-## Architecture
-
-### Project Structure
 ```
 app-review/
-├── app_review_project/     # Main Django project
-├── apps/                   # App management module
-├── reviews/               # Review management module
-├── users/                 # User management module
-├── fixtures/              # Sample data
-├── requirements.txt       # Python dependencies
-├── docker-compose.yml     # Docker configuration
-├── Dockerfile            # Docker image definition
-└── manage.py             # Django management script
+├── backend/                 # Django REST API
+│   ├── app_review_project/ # Project settings
+│   ├── apps/               # App management
+│   ├── reviews/            # Review system
+│   ├── users/              # User management
+│   └── manage.py
+├── frontend/               # React TypeScript app
+│   ├── src/
+│   │   ├── components/     # Reusable components
+│   │   ├── pages/          # Page components
+│   │   ├── services/       # API services
+│   │   └── contexts/       # React contexts
+│   └── package.json
+├── docker-compose.yml      # Multi-container setup
+├── Dockerfile             # Backend container
+├── setup-backend.sh       # Backend setup script
+└── setup-frontend.sh      # Frontend setup script
 ```
 
-### Database Models
+## 🚀 Quick Start
 
-#### App Model
-- Comprehensive app metadata
-- JSON fields for extensibility
-- Rating calculations
-- Search optimization
+### Option 1: Automated Setup (Recommended)
 
-#### Review Model
-- User-app relationship
-- Moderation workflow
-- Extensible for sentiment analysis
-- Helpful votes support
+1. **Clone and setup backend:**
+   ```bash
+   git clone <repository-url>
+   cd app-review
+   ./setup-backend.sh
+   ```
 
-#### UserProfile Model
-- Extended user information
-- Reputation system ready
-- Preference management
-- Statistics tracking
+2. **Setup frontend (in new terminal):**
+   ```bash
+   ./setup-frontend.sh
+   ```
 
-## Extensibility Features
+3. **Start development servers:**
+   ```bash
+   # Terminal 1 - Backend
+   cd backend && source ../venv/bin/activate && python manage.py runserver
+   
+   # Terminal 2 - Frontend  
+   cd frontend && npm start
+   ```
 
-### Current Extensible Fields
+4. **Access the application:**
+   - Frontend: http://localhost:3000
+   - Backend API: http://localhost:8000
+   - Admin Panel: http://localhost:8000/admin (admin/admin123)
 
-1. **App Model**
-   - `tags`: JSON field for categorization
-   - `metadata`: JSON field for additional data
+### Option 2: Docker Setup (Full Stack)
 
-2. **Review Model**
-   - `sentiment_score`: For AI sentiment analysis
-   - `helpful_votes`: For community moderation
-   - `tags`: For review categorization
-   - `metadata`: For additional data
-
-3. **UserProfile Model**
-   - `preferences`: User preference storage
-   - `metadata`: Additional user data
-   - `reputation_score`: Gamification ready
-
-### Future Enhancement Ideas
-
-1. **NLP Integration**
-   - Sentiment analysis for reviews
-   - Automatic tagging
-   - Content moderation
-
-2. **Recommendation System**
-   - App recommendations based on reviews
-   - User preference learning
-   - Collaborative filtering
-
-3. **Advanced Moderation**
-   - Machine learning for spam detection
-   - Community moderation features
-   - Automated quality scoring
-
-4. **Gamification**
-   - User reputation system
-   - Badges and achievements
-   - Leaderboards
-
-## Testing
-
-### Run Tests
 ```bash
-python manage.py test
+# Build and run all services (backend, frontend, database)
+docker-compose up --build
+
+# Or run in detached mode
+docker-compose up -d --build
 ```
 
-### API Testing with curl
+**Access the application:**
+- Frontend: http://localhost:3000
+- Backend API: http://localhost:8000
+- Admin Panel: http://localhost:8000/admin (admin/admin123)
+- Database: PostgreSQL on port 5432
 
-#### Test App Search
+### Option 3: Production Deployment
+
 ```bash
-# Get suggestions
-curl "http://localhost:8000/api/apps/search/suggestions/?q=wha"
+# Copy production environment file
+cp .env.prod.example .env.prod
 
-# Full search
-curl "http://localhost:8000/api/apps/search/?q=messaging"
+# Edit environment variables
+nano .env.prod
+
+# Deploy with production configuration
+docker-compose -f docker-compose.prod.yml up -d --build
 ```
 
-#### Test Authentication
-```bash
-# Register user
-curl -X POST http://localhost:8000/api/auth/register/ \
-  -H "Content-Type: application/json" \
-  -d '{"username": "testuser", "email": "test@example.com", "password": "password123", "password_confirm": "password123"}'
+## 📋 API Endpoints
 
-# Login
-curl -X POST http://localhost:8000/api/auth/login/ \
-  -H "Content-Type: application/json" \
-  -d '{"username": "testuser", "password": "password123"}'
-```
+### Authentication
+- `POST /api/auth/register/` - User registration
+- `POST /api/auth/login/` - User login  
+- `POST /api/auth/refresh/` - Token refresh
+- `POST /api/auth/logout/` - User logout
 
-## Production Deployment
+### Apps
+- `GET /api/apps/` - List all apps
+- `GET /api/apps/{id}/` - App details with reviews
+- `GET /api/apps/search/?q=<query>` - Search apps
+- `GET /api/apps/search/suggestions/?q=<query>` - Search suggestions
+- `GET /api/apps/categories/` - List categories
 
-### Environment Variables
-```bash
-SECRET_KEY=your-secret-key
-DEBUG=False
-ALLOWED_HOSTS=yourdomain.com,www.yourdomain.com
-DB_NAME=your_db_name
-DB_USER=your_db_user
-DB_PASSWORD=your_db_password
-DB_HOST=your_db_host
-DB_PORT=5432
-```
+### Reviews  
+- `POST /api/reviews/create/` - Create review
+- `GET /api/reviews/my-reviews/` - User's reviews
+- `GET /api/reviews/pending/` - Pending reviews (supervisors)
+- `PUT /api/reviews/{id}/moderate/` - Moderate review
+- `GET /api/reviews/stats/` - Review statistics
 
-### PostgreSQL Setup
-```sql
-CREATE DATABASE app_review_db;
-CREATE USER app_review_user WITH PASSWORD 'your_password';
-GRANT ALL PRIVILEGES ON DATABASE app_review_db TO app_review_user;
-```
+### Users
+- `GET /api/users/profile/` - User profile
 
-### Static Files
-```bash
-python manage.py collectstatic
-```
+## 🛠️ Technology Stack
 
-### Gunicorn
-```bash
-gunicorn app_review_project.wsgi:application --bind 0.0.0.0:8000
-```
+### Backend
+- **Django 4.2** + **Django REST Framework**
+- **SimpleJWT** for authentication
+- **PostgreSQL** (Docker) / **SQLite** (Development)
+- **CORS Headers** for cross-origin requests
 
-## Contributing
+### Frontend  
+- **React 19** + **TypeScript**
+- **Tailwind CSS** for styling
+- **React Router** for navigation
+- **Axios** for API calls
+- **React Hot Toast** for notifications
 
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Add tests for new features
-5. Submit a pull request
-
-## License
-
-This project is licensed under the MIT License - see the LICENSE file for details.
-
-## Support
-
-For support and questions:
-- Create an issue in the repository
-- Review the API documentation above
-- Check the Django admin interface for data management
-
-## Development Notes
-
-### Key Design Decisions
-
-1. **Function-Based Views**: Used FBVs as requested for better control and simplicity
-2. **Modular Architecture**: Separated concerns into distinct Django apps
-3. **JWT Authentication**: Industry-standard token-based authentication
-4. **PostgreSQL**: Production-ready database with JSON field support
-5. **Extensible Models**: JSON fields for future feature additions
-6. **Docker Support**: Complete containerization for easy deployment
-
-### Search Implementation
-
-The search functionality uses a two-tier approach:
-1. **Auto-suggestions**: Fast `icontains` lookup for real-time suggestions
-2. **Full search**: `difflib.get_close_matches` for similarity-based matching with fallback to broader search
-
-This provides both speed and accuracy for different user interaction patterns.
+### DevOps
+- **Docker** + **Docker Compose** (Full stack deployment)
+- **PostgreSQL** database
+- **CORS** configuration
+- **Multi-stage builds** for production optimization
