@@ -1,0 +1,178 @@
+[
+  {
+    "model": "auth.group",
+    "pk": 1,
+    "fields": {
+      "name": "supervisors",
+      "permissions": []
+    }
+  },
+  {
+    "model": "apps.app",
+    "pk": 1,
+    "fields": {
+      "name": "WhatsApp",
+      "description": "Simple. Reliable. Secure. WhatsApp from Meta is a FREE messaging and video calling app.",
+      "developer": "Meta Platforms",
+      "category": "Communication",
+      "version": "2.23.24.76",
+      "app_store_url": "https://apps.apple.com/app/whatsapp-messenger/id310633997",
+      "google_play_url": "https://play.google.com/store/apps/details?id=com.whatsapp",
+      "app_id": "com.whatsapp",
+      "release_date": "2009-01-01",
+      "size_mb": 85.2,
+      "average_rating": 4.5,
+      "total_ratings": 0,
+      "tags": ["messaging", "communication", "social"],
+      "metadata": {},
+      "is_active": true
+    }
+  },
+  {
+    "model": "apps.app",
+    "pk": 2,
+    "fields": {
+      "name": "Instagram",
+      "description": "Create and share photos, stories, reels, videos & messages with friends & family.",
+      "developer": "Meta Platforms",
+      "category": "Photo & Video",
+      "version": "302.0",
+      "app_store_url": "https://apps.apple.com/app/instagram/id389801252",
+      "google_play_url": "https://play.google.com/store/apps/details?id=com.instagram.android",
+      "app_id": "com.instagram.android",
+      "release_date": "2010-10-06",
+      "size_mb": 128.5,
+      "average_rating": 4.2,
+      "total_ratings": 0,
+      "tags": ["social", "photo", "video", "stories"],
+      "metadata": {},
+      "is_active": true
+    }
+  },
+  {
+    "model": "apps.app",
+    "pk": 3,
+    "fields": {
+      "name": "Spotify",
+      "description": "Spotify is a digital music service that gives you access to millions of songs.",
+      "developer": "Spotify AB",
+      "category": "Music",
+      "version": "8.8.50.749",
+      "app_store_url": "https://apps.apple.com/app/spotify-music-and-podcasts/id324684580",
+      "google_play_url": "https://play.google.com/store/apps/details?id=com.spotify.music",
+      "app_id": "com.spotify.music",
+      "release_date": "2008-10-07",
+      "size_mb": 95.7,
+      "average_rating": 4.3,
+      "total_ratings": 0,
+      "tags": ["music", "streaming", "podcasts", "audio"],
+      "metadata": {},
+      "is_active": true
+    }
+  },
+  {
+    "model": "apps.app",
+    "pk": 4,
+    "fields": {
+      "name": "TikTok",
+      "description": "TikTok is the leading destination for short-form mobile video.",
+      "developer": "ByteDance Ltd.",
+      "category": "Entertainment",
+      "version": "32.8.4",
+      "app_store_url": "https://apps.apple.com/app/tiktok/id835599320",
+      "google_play_url": "https://play.google.com/store/apps/details?id=com.zhiliaoapp.musically",
+      "app_id": "com.zhiliaoapp.musically",
+      "release_date": "2016-09-26",
+      "size_mb": 142.8,
+      "average_rating": 4.1,
+      "total_ratings": 0,
+      "tags": ["video", "social", "entertainment", "short-form"],
+      "metadata": {},
+      "is_active": true
+    }
+  },
+  {
+    "model": "apps.app",
+    "pk": 5,
+    "fields": {
+      "name": "YouTube",
+      "description": "Get the official YouTube app on Android phones and tablets.",
+      "developer": "Google LLC",
+      "category": "Video Players & Editors",
+      "version": "18.49.37",
+      "app_store_url": "https://apps.apple.com/app/youtube-watch-listen-stream/id544007664",
+      "google_play_url": "https://play.google.com/store/apps/details?id=com.google.android.youtube",
+      "app_id": "com.google.android.youtube",
+      "release_date": "2005-02-14",
+      "size_mb": 156.3,
+      "average_rating": 4.4,
+      "total_ratings": 0,
+      "tags": ["video", "streaming", "entertainment", "education"],
+      "metadata": {},
+      "is_active": true
+    }
+  },
+  {
+    "model": "apps.app",
+    "pk": 6,
+    "fields": {
+      "name": "Gmail",
+      "description": "Gmail is an easy to use email app that saves you time and keeps your messages safe.",
+      "developer": "Google LLC",
+      "category": "Productivity",
+      "version": "2023.11.26.584072612",
+      "app_store_url": "https://apps.apple.com/app/gmail-email-by-google/id422689480",
+      "google_play_url": "https://play.google.com/store/apps/details?id=com.google.android.gm",
+      "app_id": "com.google.android.gm",
+      "release_date": "2004-04-01",
+      "size_mb": 78.9,
+      "average_rating": 4.6,
+      "total_ratings": 0,
+      "tags": ["email", "productivity", "communication", "google"],
+      "metadata": {},
+      "is_active": true
+    }
+  },
+  {
+    "model": "apps.app",
+    "pk": 7,
+    "fields": {
+      "name": "Uber",
+      "description": "Request a ride, hop in, and go. Or, drive when you want and earn extra cash.",
+      "developer": "Uber Technologies, Inc.",
+      "category": "Travel",
+      "version": "4.456.10002",
+      "app_store_url": "https://apps.apple.com/app/uber/id368677368",
+      "google_play_url": "https://play.google.com/store/apps/details?id=com.ubercab",
+      "app_id": "com.ubercab",
+      "release_date": "2010-05-31",
+      "size_mb": 203.7,
+      "average_rating": 4.0,
+      "total_ratings": 0,
+      "tags": ["transportation", "rideshare", "travel", "mobility"],
+      "metadata": {},
+      "is_active": true
+    }
+  },
+  {
+    "model": "apps.app",
+    "pk": 8,
+    "fields": {
+      "name": "Netflix",
+      "description": "Netflix is the leading subscription service for watching TV episodes and movies.",
+      "developer": "Netflix, Inc.",
+      "category": "Entertainment",
+      "version": "8.90.0",
+      "app_store_url": "https://apps.apple.com/app/netflix/id363590051",
+      "google_play_url": "https://play.google.com/store/apps/details?id=com.netflix.mediaclient",
+      "app_id": "com.netflix.mediaclient",
+      "release_date": "2010-01-15",
+      "size_mb": 89.4,
+      "average_rating": 4.2,
+      "total_ratings": 0,
+      "tags": ["streaming", "movies", "tv-shows", "entertainment"],
+      "metadata": {},
+      "is_active": true
+    }
+  }
+]
