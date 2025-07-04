@@ -4,12 +4,14 @@ import { Review } from '../services/reviews';
 interface ReviewCardProps {
   review: Review;
   showModerationActions?: boolean;
+  showStatusBadge?: boolean;
   onModerate?: (reviewId: number, status: 'approved' | 'rejected', notes?: string) => void;
 }
 
 const ReviewCard: React.FC<ReviewCardProps> = ({ 
   review, 
   showModerationActions = false,
+  showStatusBadge = true,
   onModerate 
 }) => {
   const getStatusBadge = (status: string) => {
@@ -75,7 +77,7 @@ const ReviewCard: React.FC<ReviewCardProps> = ({
         </div>
         
         <div className="flex items-center space-x-2">
-          {getStatusBadge(review.status)}
+          {showStatusBadge && review.status && getStatusBadge(review.status)}
         </div>
       </div>
 
@@ -96,21 +98,40 @@ const ReviewCard: React.FC<ReviewCardProps> = ({
         </div>
       )}
 
-      {review.moderated_by && review.moderated_at && (
+      {review.reviewed_by && review.reviewed_at && (
         <div className="text-sm text-gray-500 border-t pt-3">
           <p>
-            Moderated by {review.moderated_by.first_name && review.moderated_by.last_name
-              ? `${review.moderated_by.first_name} ${review.moderated_by.last_name}`
-              : review.moderated_by.username || 'Unknown'} on{' '}
-            {new Date(review.moderated_at).toLocaleDateString()}
+            Moderated by {review.reviewed_by.first_name && review.reviewed_by.last_name
+              ? `${review.reviewed_by.first_name} ${review.reviewed_by.last_name}`
+              : review.reviewed_by.username || 'Unknown'} on{' '}
+            {new Date(review.reviewed_at).toLocaleDateString()}
           </p>
-          {review.moderation_notes && (
-            <p className="mt-1 italic">"{review.moderation_notes}"</p>
+          {review.rejection_reason && (
+            <p className="mt-1 italic">"{review.rejection_reason}"</p>
           )}
         </div>
       )}
 
-      {showModerationActions && review.status === 'pending' && (
+      {/* Show rejection reason for rejected reviews even without moderation info */}
+      {review.status === 'rejected' && review.rejection_reason && !review.reviewed_by && (
+        <div className="bg-red-50 border border-red-200 rounded-md p-3 mt-4">
+          <div className="flex items-start">
+            <div className="flex-shrink-0">
+              <svg className="h-5 w-5 text-red-400" viewBox="0 0 20 20" fill="currentColor">
+                <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
+              </svg>
+            </div>
+            <div className="ml-3">
+              <h4 className="text-sm font-medium text-red-800">Review Rejected</h4>
+              <p className="text-sm text-red-700 mt-1">
+                <span className="font-medium">Reason:</span> {review.rejection_reason}
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showModerationActions && (
         <div className="flex space-x-3 mt-4 pt-4 border-t">
           <button
             onClick={() => handleModerationAction('approved')}

@@ -1,12 +1,15 @@
 import React, { useState, useEffect } from 'react';
 import reviewService, { Review } from '../services/reviews';
 import ReviewCard from '../components/ReviewCard';
+import RejectionModal from '../components/RejectionModal';
 import toast from 'react-hot-toast';
 
 const ModerationPage: React.FC = () => {
   const [reviews, setReviews] = useState<Review[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [moderatingId, setModeratingId] = useState<number | null>(null);
+  const [showRejectionModal, setShowRejectionModal] = useState(false);
+  const [currentReviewForRejection, setCurrentReviewForRejection] = useState<Review | null>(null);
 
   useEffect(() => {
     fetchPendingReviews();
@@ -29,10 +32,16 @@ const ModerationPage: React.FC = () => {
     setModeratingId(reviewId);
     
     try {
-      await reviewService.moderateReview(reviewId, {
-        status,
-        moderation_notes: notes,
-      });
+      // Convert frontend status to backend action format
+      const action = status === 'approved' ? 'approve' : 'reject';
+      const moderationData: any = { action };
+      
+      // Add rejection reason if rejecting
+      if (action === 'reject' && notes) {
+        moderationData.rejection_reason = notes;
+      }
+      
+      await reviewService.moderateReview(reviewId, moderationData);
       
       toast.success(`Review ${status} successfully`);
       
@@ -47,11 +56,31 @@ const ModerationPage: React.FC = () => {
   };
 
   const handleModerationWithNotes = (reviewId: number, status: 'approved' | 'rejected') => {
-    const notes = status === 'rejected' 
-      ? prompt('Please provide a reason for rejection (optional):')
-      : undefined;
-    
-    handleModerate(reviewId, status, notes || undefined);
+    if (status === 'rejected') {
+      const review = reviews.find(r => r.id === reviewId);
+      setCurrentReviewForRejection(review || null);
+      setShowRejectionModal(true);
+    } else {
+      handleModerate(reviewId, status);
+    }
+  };
+
+  const handleRejectionConfirm = (reason: string) => {
+    if (currentReviewForRejection) {
+      if (currentReviewForRejection.id === -1) {
+        // Bulk rejection
+        reviews.forEach(review => handleModerate(review.id, 'rejected', reason));
+      } else {
+        // Single review rejection
+        handleModerate(currentReviewForRejection.id, 'rejected', reason);
+      }
+      setCurrentReviewForRejection(null);
+    }
+  };
+
+  const handleRejectionCancel = () => {
+    setCurrentReviewForRejection(null);
+    setShowRejectionModal(false);
   };
 
   if (isLoading) {
@@ -155,6 +184,18 @@ const ModerationPage: React.FC = () => {
               Approve All
             </button>
             <button
+              onClick={() => {
+                if (window.confirm('Are you sure you want to reject all pending reviews? This action cannot be undone.')) {
+                  // Set a special marker for bulk rejection
+                  setCurrentReviewForRejection({ id: -1, title: 'All Reviews' } as Review);
+                  setShowRejectionModal(true);
+                }
+              }}
+              className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-md font-medium transition-colors"
+            >
+              Reject All
+            </button>
+            <button
               onClick={fetchPendingReviews}
               className="bg-gray-600 hover:bg-gray-700 text-white px-4 py-2 rounded-md font-medium transition-colors"
             >
@@ -163,6 +204,14 @@ const ModerationPage: React.FC = () => {
           </div>
         </div>
       )}
+
+      {/* Rejection Modal */}
+      <RejectionModal
+        isOpen={showRejectionModal}
+        onClose={handleRejectionCancel}
+        onConfirm={handleRejectionConfirm}
+        reviewTitle={currentReviewForRejection?.title || undefined}
+      />
     </div>
   );
 };

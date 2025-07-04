@@ -28,17 +28,22 @@ function App() {
               style: {
                 background: '#363636',
                 color: '#fff',
+                cursor: 'pointer',
               },
               success: {
                 duration: 3000,
                 style: {
                   background: '#10B981',
+                  color: '#fff',
+                  cursor: 'pointer',
                 },
               },
               error: {
                 duration: 5000,
                 style: {
                   background: '#EF4444',
+                  color: '#fff',
+                  cursor: 'pointer',
                 },
               },
             }}

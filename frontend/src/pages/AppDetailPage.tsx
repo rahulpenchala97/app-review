@@ -184,7 +184,11 @@ const AppDetailPage: React.FC = () => {
         ) : (
           <div className="space-y-6">
             {reviews.map((review) => (
-              <ReviewCard key={review.id} review={review} />
+              <ReviewCard 
+                key={review.id} 
+                review={review} 
+                showStatusBadge={false}
+              />
             ))}
           </div>
         )}

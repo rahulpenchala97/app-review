@@ -31,8 +31,12 @@ export interface AppSuggestion {
 }
 
 class AppService {
-  async getApps(): Promise<App[]> {
-    const response = await api.get('/api/apps/');
+  async getApps(category?: string): Promise<App[]> {
+    const params: any = {};
+    if (category) {
+      params.category = category;
+    }
+    const response = await api.get('/api/apps/', { params });
     return response.data.results || [];
   }
 
@@ -41,10 +45,23 @@ class AppService {
     return response.data;
   }
 
-  async searchApps(query: string): Promise<App[]> {
-    const response = await api.get('/api/apps/search/', {
-      params: { q: query }
-    });
+  async searchApps(query: string, category?: string): Promise<App[]> {
+    const params: any = {};
+    
+    if (query.trim()) {
+      params.q = query.trim();
+    }
+    
+    if (category) {
+      params.category = category;
+    }
+    
+    // If no query and no category, return empty results
+    if (!params.q && !params.category) {
+      return [];
+    }
+    
+    const response = await api.get('/api/apps/search/', { params });
     return response.data.results || [];
   }
 

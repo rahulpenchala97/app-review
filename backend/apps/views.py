@@ -42,9 +42,26 @@ def app_search_suggestions(request):
 def app_search(request):
     """
     Full app search using difflib for text similarity.
-    Triggered on form submit.
+    Triggered on form submit. Supports category filtering.
     """
     query = request.GET.get('q', '').strip()
+    category = request.GET.get('category', '').strip()
+    
+    # Handle category-only search
+    if not query and category:
+        apps = App.objects.filter(
+            category__iexact=category,
+            is_active=True
+        ).order_by('-average_rating', 'name')[:50]
+        
+        serializer = AppListSerializer(apps, many=True)
+        return Response({
+            'results': serializer.data,
+            'query': query,
+            'category': category,
+            'count': len(serializer.data),
+            'search_type': 'category_filter'
+        })
     
     if not query:
         return Response({
@@ -53,36 +70,36 @@ def app_search(request):
         }, status=status.HTTP_400_BAD_REQUEST)
     
     # Get all active app names for similarity matching
-    all_apps = App.objects.filter(is_active=True).values_list('name', flat=True)
+    all_apps = App.objects.filter(is_active=True)
+    
+    # Apply category filter if provided
+    if category:
+        all_apps = all_apps.filter(category__iexact=category)
+    
+    app_names = all_apps.values_list('name', flat=True)
     
     # Use difflib to find close matches
     close_matches = difflib.get_close_matches(
         query, 
-        all_apps, 
+        app_names, 
         n=20,  # Return up to 20 matches
         cutoff=0.3  # Minimum similarity ratio
     )
     
     # Get app objects for the matched names
-    matched_apps = App.objects.filter(
-        name__in=close_matches,
-        is_active=True
-    ).order_by('name')
+    matched_apps = all_apps.filter(name__in=close_matches).order_by('name')
     
     # If no close matches, fall back to icontains search
     if not matched_apps.exists():
-        matched_apps = App.objects.filter(
-            Q(name__icontains=query) | 
-            Q(developer__icontains=query) |
-            Q(description__icontains=query),
-            is_active=True
-        ).order_by('-average_rating', 'name')[:20]
+        search_filter = Q(name__icontains=query) | Q(developer__icontains=query) | Q(description__icontains=query)
+        matched_apps = all_apps.filter(search_filter, is_active=True).order_by('-average_rating', 'name')[:20]
     
     serializer = AppListSerializer(matched_apps, many=True)
     
     return Response({
         'results': serializer.data,
         'query': query,
+        'category': category,
         'count': len(serializer.data),
         'search_type': 'similarity_match' if close_matches else 'fallback_search'
     })

@@ -11,12 +11,12 @@ export interface Review {
   content: string;
   rating: number;
   tags?: string[];
-  status: 'pending' | 'approved' | 'rejected';
+  status?: 'pending' | 'approved' | 'rejected'; // Optional since pending reviews don't include this
   created_at: string;
-  updated_at: string;
-  moderated_by?: User;
-  moderated_at?: string;
-  moderation_notes?: string;
+  updated_at?: string;
+  reviewed_by?: User;
+  reviewed_at?: string;
+  rejection_reason?: string;
 }
 
 export interface CreateReviewData {
@@ -36,8 +36,8 @@ export interface ReviewStats {
 }
 
 export interface ModerateReviewData {
-  status: 'approved' | 'rejected';
-  moderation_notes?: string;
+  action: 'approve' | 'reject';
+  rejection_reason?: string;
 }
 
 class ReviewService {
@@ -63,7 +63,7 @@ class ReviewService {
   }
 
   async moderateReview(reviewId: number, data: ModerateReviewData): Promise<Review> {
-    const response = await api.put(`/api/reviews/${reviewId}/moderate/`, data);
+    const response = await api.post(`/api/reviews/${reviewId}/moderate/`, data);
     return response.data;
   }
 
