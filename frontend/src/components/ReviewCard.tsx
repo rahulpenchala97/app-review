@@ -70,14 +70,6 @@ const ReviewCard: React.FC<ReviewCardProps> = ({
     }
   };
 
-  // Debug logging for admin override
-  console.log('ReviewCard debug:', {
-    reviewId: review.id,
-    showAdminOverride,
-    hasOnAdminOverride: !!onAdminOverride,
-    showAdminOverrideSection: showAdminOverride && !!onAdminOverride
-  });
-
   return (
     <div className="border border-gray-200 rounded-lg p-6">
       <div className="flex items-start justify-between mb-3">
