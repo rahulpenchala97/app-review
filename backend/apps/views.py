@@ -5,6 +5,7 @@ from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework import status
 from django.db.models import Q
+from app_review_project.pagination import LargeResultsSetPagination
 from .models import App
 from .serializers import (
     AppListSerializer, AppDetailSerializer, AppCreateSerializer
@@ -41,7 +42,7 @@ def app_search_suggestions(request):
 @permission_classes([AllowAny])
 def app_search(request):
     """
-    Full app search using difflib for text similarity.
+    Full app search using difflib for text similarity with pagination.
     Triggered on form submit. Supports category filtering.
     """
     query = request.GET.get('q', '').strip()
@@ -52,9 +53,25 @@ def app_search(request):
         apps = App.objects.filter(
             category__iexact=category,
             is_active=True
-        ).order_by('-average_rating', 'name')[:50]
+        ).order_by('-average_rating', 'name')
         
-        serializer = AppListSerializer(apps, many=True)
+        # Apply pagination
+        paginator = LargeResultsSetPagination()
+        page = paginator.paginate_queryset(apps, request)
+
+        if page is not None:
+            serializer = AppListSerializer(page, many=True)
+            response_data = paginator.get_paginated_response(serializer.data)
+            # Add metadata
+            response_data.data.update({
+                'query': query,
+                'category': category,
+                'search_type': 'category_filter'
+            })
+            return response_data
+
+        # Fallback
+        serializer = AppListSerializer(apps[:50], many=True)
         return Response({
             'results': serializer.data,
             'query': query,
@@ -82,7 +99,7 @@ def app_search(request):
     close_matches = difflib.get_close_matches(
         query, 
         app_names, 
-        n=20,  # Return up to 20 matches
+        n=100,  # Increase for pagination
         cutoff=0.3  # Minimum similarity ratio
     )
     
@@ -92,10 +109,26 @@ def app_search(request):
     # If no close matches, fall back to icontains search
     if not matched_apps.exists():
         search_filter = Q(name__icontains=query) | Q(developer__icontains=query) | Q(description__icontains=query)
-        matched_apps = all_apps.filter(search_filter, is_active=True).order_by('-average_rating', 'name')[:20]
+        matched_apps = all_apps.filter(
+            search_filter, is_active=True).order_by('-average_rating', 'name')
+
+    # Apply pagination
+    paginator = LargeResultsSetPagination()
+    page = paginator.paginate_queryset(matched_apps, request)
+
+    if page is not None:
+        serializer = AppListSerializer(page, many=True)
+        response_data = paginator.get_paginated_response(serializer.data)
+        # Add metadata
+        response_data.data.update({
+            'query': query,
+            'category': category,
+            'search_type': 'similarity_match' if close_matches else 'fallback_search'
+        })
+        return response_data
     
+    # Fallback
     serializer = AppListSerializer(matched_apps, many=True)
-    
     return Response({
         'results': serializer.data,
         'query': query,
@@ -126,7 +159,7 @@ def app_detail(request, app_id):
 @permission_classes([AllowAny])
 def app_list(request):
     """
-    Get list of all apps with optional filtering.
+    Get list of all apps with optional filtering and pagination.
     """
     queryset = App.objects.filter(is_active=True)
     
@@ -151,27 +184,19 @@ def app_list(request):
     else:
         queryset = queryset.order_by('-created_at')
     
-    # Pagination
-    page_size = min(int(request.GET.get('page_size', 20)), 100)
-    page = int(request.GET.get('page', 1))
-    start = (page - 1) * page_size
-    end = start + page_size
+    # Apply pagination
+    paginator = LargeResultsSetPagination()
+    page = paginator.paginate_queryset(queryset, request)
     
-    total_count = queryset.count()
-    apps = queryset[start:end]
+    if page is not None:
+        serializer = AppListSerializer(page, many=True)
+        return paginator.get_paginated_response(serializer.data)
     
-    serializer = AppListSerializer(apps, many=True)
-    
+    # Fallback for when pagination is not applied
+    serializer = AppListSerializer(queryset, many=True)
     return Response({
         'results': serializer.data,
-        'pagination': {
-            'page': page,
-            'page_size': page_size,
-            'total_count': total_count,
-            'total_pages': (total_count + page_size - 1) // page_size,
-            'has_next': end < total_count,
-            'has_previous': page > 1
-        }
+        'count': len(serializer.data)
     })
 
 

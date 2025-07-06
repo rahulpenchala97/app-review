@@ -18,5 +18,7 @@ urlpatterns = [
     path('list/', views.user_list, name='list'),
     path('supervisors/', views.supervisor_list, name='supervisor_list'),
     path('promote-supervisor/', views.promote_to_supervisor, name='promote_supervisor'),
+    path('bulk-promote-supervisors/', views.bulk_promote_supervisors,
+         name='bulk_promote_supervisors'),
     path('<int:user_id>/revoke-supervisor/', views.revoke_supervisor, name='revoke_supervisor'),
 ]

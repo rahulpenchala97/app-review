@@ -116,7 +116,8 @@ class UserSerializer(serializers.ModelSerializer):
     
     class Meta:
         model = User
-        fields = ['id', 'username', 'email', 'first_name', 'last_name', 'is_supervisor']
+        fields = ['id', 'username', 'email', 'first_name',
+                  'last_name', 'is_supervisor', 'is_superuser']
     
     def get_is_supervisor(self, obj):
         return obj.groups.filter(name='supervisors').exists()

@@ -15,11 +15,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy backend project
 COPY backend/ .
 
-# Create entrypoint script
-COPY backend/docker-entrypoint.sh /docker-entrypoint.sh
-RUN chmod +x /docker-entrypoint.sh
-
 EXPOSE 8000
 
-ENTRYPOINT ["/docker-entrypoint.sh"]
-CMD ["gunicorn", "--bind", "0.0.0.0:8000", "app_review_project.wsgi:application"]
+# No entrypoint script to avoid format errors
+# Commands will be handled by docker-compose

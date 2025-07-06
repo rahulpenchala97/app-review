@@ -1,5 +1,6 @@
 from django.core.management.base import BaseCommand
 from django.contrib.auth.models import User, Group
+from django.core.management import call_command
 from django.db import transaction
 from apps.models import App
 from reviews.models import Review
@@ -21,6 +22,11 @@ class Command(BaseCommand):
             action='store_true',
             help='Skip loading sample data',
         )
+        parser.add_argument(
+            '--skip-test-users',
+            action='store_true',
+            help='Skip creating test users',
+        )
 
     def handle(self, *args, **options):
         with transaction.atomic():
@@ -33,6 +39,10 @@ class Command(BaseCommand):
             if not options['skip_superuser']:
                 self.create_superuser()
             
+            # Create test users if requested
+            if not options['skip_test_users']:
+                self.create_test_users()
+
             # Load sample data if requested
             if not options['skip_sample_data']:
                 self.load_sample_data()
@@ -60,17 +70,41 @@ class Command(BaseCommand):
                 last_name='User'
             )
             
+            # Ensure the user is staff (should be automatic with create_superuser)
+            admin_user.is_staff = True
+            admin_user.save()
+
             # Add admin to supervisors group
             supervisors_group = Group.objects.get(name='supervisors')
             admin_user.groups.add(supervisors_group)
             
             self.stdout.write(
                 self.style.SUCCESS(
-                    'Created superuser: admin/admin123'
+                    'Created superuser: admin/admin123 (staff: %s, superuser: %s)' % (
+                        admin_user.is_staff, admin_user.is_superuser
+                    )
                 )
             )
         else:
+            # Check if existing superuser is in supervisors group
+            admin_user = User.objects.filter(is_superuser=True).first()
+            if admin_user:
+                supervisors_group = Group.objects.get(name='supervisors')
+                if not admin_user.groups.filter(name='supervisors').exists():
+                    admin_user.groups.add(supervisors_group)
+                    self.stdout.write(
+                        'Added existing superuser to supervisors group')
             self.stdout.write('Superuser already exists')
+
+    def create_test_users(self):
+        """Create test users by calling the create_test_users command"""
+        self.stdout.write('Creating test users...')
+        try:
+            call_command('create_test_users')
+        except Exception as e:
+            self.stdout.write(
+                self.style.ERROR(f'Failed to create test users: {e}')
+            )
 
     def load_sample_data(self):
         """Load sample apps data"""

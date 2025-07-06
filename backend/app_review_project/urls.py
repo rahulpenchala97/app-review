@@ -28,6 +28,21 @@ def api_home(request):
     return JsonResponse({
         'message': 'Welcome to App Review API',
         'version': '1.0',
+        'pagination': {
+            'note': 'All list endpoints support pagination',
+            'parameters': {
+                'page': 'Page number (default: 1)',
+                'page_size': 'Items per page (default varies by endpoint)',
+            },
+            'response_format': {
+                'links': {'next': 'URL to next page', 'previous': 'URL to previous page'},
+                'count': 'Total number of items',
+                'total_pages': 'Total number of pages',
+                'current_page': 'Current page number',
+                'page_size': 'Current page size',
+                'results': 'Array of items for current page'
+            }
+        },
         'endpoints': {
             'authentication': {
                 'register': '/api/auth/register/',
@@ -36,8 +51,8 @@ def api_home(request):
                 'token_verify': '/api/auth/token/verify/',
             },
             'apps': {
-                'list': '/api/apps/',
-                'search': '/api/apps/search/',
+                'list': '/api/apps/ (paginated)',
+                'search': '/api/apps/search/ (paginated)',
                 'suggestions': '/api/apps/search/suggestions/',
                 'detail': '/api/apps/{id}/',
                 'create': '/api/apps/create/',
@@ -46,18 +61,26 @@ def api_home(request):
             },
             'reviews': {
                 'create': '/api/reviews/create/',
-                'my_reviews': '/api/reviews/my-reviews/',
+                'my_reviews': '/api/reviews/my-reviews/ (paginated)',
                 'detail': '/api/reviews/{id}/',
-                'pending': '/api/reviews/pending/',
+                'pending': '/api/reviews/pending/ (paginated)',
+                'moderation': '/api/reviews/moderation/ (paginated)',
+                'conflicted': '/api/reviews/conflicted/ (paginated)',
                 'moderate': '/api/reviews/{id}/moderate/',
+                'supervisor_decision': '/api/reviews/{id}/supervisor-decision/',
+                'resolve_conflict': '/api/reviews/{id}/resolve-conflict/',
                 'stats': '/api/reviews/stats/',
+                'supervisor_stats': '/api/reviews/supervisor-stats/',
             },
             'users': {
                 'profile': '/api/users/profile/',
                 'update_profile': '/api/users/profile/update/',
                 'change_password': '/api/users/change-password/',
-                'list': '/api/users/list/',
-                'supervisors': '/api/users/supervisors/',
+                'list': '/api/users/list/ (paginated)',
+                'supervisors': '/api/users/supervisors/ (paginated)',
+                'promote_supervisor': '/api/users/promote-supervisor/',
+                'bulk_promote_supervisors': '/api/users/bulk-promote-supervisors/',
+                'revoke_supervisor': '/api/users/{id}/revoke-supervisor/',
             },
         }
     })

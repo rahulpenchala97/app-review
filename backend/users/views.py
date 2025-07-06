@@ -4,6 +4,7 @@ from rest_framework.permissions import AllowAny, IsAuthenticated, IsAdminUser
 from rest_framework.response import Response
 from rest_framework import status
 from rest_framework_simplejwt.tokens import RefreshToken
+from app_review_project.pagination import StandardResultsSetPagination
 from .models import UserProfile
 from .serializers import (
     UserRegistrationSerializer, UserLoginSerializer, UserProfileSerializer,
@@ -71,7 +72,7 @@ def user_login(request):
                 'first_name': user.first_name,
                 'last_name': user.last_name,
                 'is_supervisor': user.groups.filter(name='supervisors').exists(),
-                'is_staff': user.is_staff,
+                'is_superuser': user.is_superuser,
             },
             'tokens': tokens
         })
@@ -153,10 +154,10 @@ def refresh_user_stats(request):
 @permission_classes([IsAuthenticated])
 def user_list(request):
     """
-    Get list of all users (for supervisors/admins).
+    Get list of all users (for supervisors/admins) with pagination.
     """
     # Check if user has permission to view user list
-    if not (request.user.is_staff or request.user.groups.filter(name='supervisors').exists()):
+    if not (request.user.is_superuser or request.user.groups.filter(name='supervisors').exists()):
         return Response({
             'error': 'Permission denied'
         }, status=status.HTTP_403_FORBIDDEN)
@@ -176,6 +177,18 @@ def user_list(request):
             last_name__icontains=search
         )
     
+    # Apply pagination
+    paginator = StandardResultsSetPagination()
+    page = paginator.paginate_queryset(users, request)
+
+    if page is not None:
+        serializer = UserSerializer(page, many=True)
+        response_data = paginator.get_paginated_response(serializer.data)
+        # Update the structure to match expected format
+        response_data.data['users'] = response_data.data.pop('results')
+        return response_data
+
+    # Fallback for when pagination is not applied
     serializer = UserSerializer(users, many=True)
     return Response({
         'users': serializer.data,
@@ -184,12 +197,17 @@ def user_list(request):
 
 
 @api_view(['POST'])
-@permission_classes([IsAdminUser])
+@permission_classes([IsAuthenticated])
 def promote_to_supervisor(request):
     """
     Promote a user to supervisor role.
-    Only accessible by admin users.
+    Only accessible by superusers.
     """
+    if not request.user.is_superuser:
+        return Response({
+            'error': 'Only superusers can promote users to supervisors'
+        }, status=status.HTTP_403_FORBIDDEN)
+
     serializer = SupervisorPromotionSerializer(data=request.data)
     
     if serializer.is_valid():
@@ -206,12 +224,17 @@ def promote_to_supervisor(request):
 
 
 @api_view(['POST'])
-@permission_classes([IsAdminUser])
+@permission_classes([IsAuthenticated])
 def revoke_supervisor(request, user_id):
     """
     Remove supervisor role from a user.
-    Only accessible by admin users.
+    Only accessible by superusers.
     """
+    if not request.user.is_superuser:
+        return Response({
+            'error': 'Only superusers can revoke supervisor roles'
+        }, status=status.HTTP_403_FORBIDDEN)
+
     try:
         user = User.objects.get(id=user_id)
     except User.DoesNotExist:
@@ -237,9 +260,9 @@ def revoke_supervisor(request, user_id):
 @permission_classes([IsAuthenticated])
 def supervisor_list(request):
     """
-    Get list of all supervisors.
+    Get list of all supervisors with pagination.
     """
-    if not (request.user.is_staff or request.user.groups.filter(name='supervisors').exists()):
+    if not (request.user.is_superuser or request.user.groups.filter(name='supervisors').exists()):
         return Response({
             'error': 'Permission denied'
         }, status=status.HTTP_403_FORBIDDEN)
@@ -247,6 +270,18 @@ def supervisor_list(request):
     supervisors_group = Group.objects.get_or_create(name='supervisors')[0]
     supervisors = User.objects.filter(groups=supervisors_group).order_by('username')
     
+    # Apply pagination
+    paginator = StandardResultsSetPagination()
+    page = paginator.paginate_queryset(supervisors, request)
+
+    if page is not None:
+        serializer = UserSerializer(page, many=True)
+        response_data = paginator.get_paginated_response(serializer.data)
+        # Update the structure to match expected format
+        response_data.data['supervisors'] = response_data.data.pop('results')
+        return response_data
+
+    # Fallback for when pagination is not applied
     serializer = UserSerializer(supervisors, many=True)
     return Response({
         'supervisors': serializer.data,
@@ -290,3 +325,41 @@ def change_password(request):
     return Response({
         'message': 'Password changed successfully'
     })
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def bulk_promote_supervisors(request):
+    """
+    Promote multiple users to supervisor role at once.
+    Only accessible by superusers.
+    """
+    if not request.user.is_superuser:
+        return Response({
+            'error': 'Only superusers can promote users to supervisors'
+        }, status=status.HTTP_403_FORBIDDEN)
+
+    user_ids = request.data.get('user_ids', [])
+    if not user_ids:
+        return Response({
+            'error': 'No user IDs provided'
+        }, status=status.HTTP_400_BAD_REQUEST)
+
+    try:
+        users = User.objects.filter(id__in=user_ids)
+        supervisors_group = Group.objects.get_or_create(name='supervisors')[0]
+
+        promoted_users = []
+        for user in users:
+            if not user.groups.filter(name='supervisors').exists():
+                user.groups.add(supervisors_group)
+                promoted_users.append(user)
+
+        return Response({
+            'message': f'{len(promoted_users)} users promoted to supervisors',
+            'promoted_users': [UserSerializer(user).data for user in promoted_users]
+        })
+    except Exception as e:
+        return Response({
+            'error': str(e)
+        }, status=status.HTTP_400_BAD_REQUEST)

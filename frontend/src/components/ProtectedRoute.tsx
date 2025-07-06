@@ -26,7 +26,7 @@ const ProtectedRoute: React.FC<ProtectedRouteProps> = ({
     return <Navigate to="/login" state={{ from: location }} replace />;
   }
 
-  if (requireSupervisor && !user?.is_supervisor) {
+  if (requireSupervisor && !user?.is_supervisor && !user?.is_superuser) {
     return <Navigate to="/" replace />;
   }
 

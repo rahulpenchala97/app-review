@@ -3,7 +3,7 @@ import os
 from django.core.management.base import BaseCommand
 from django.contrib.auth.models import User
 from django.utils import timezone
-from django.db import transaction, models
+from django.db import transaction
 from apps.models import App
 from reviews.models import Review
 from datetime import datetime
@@ -11,7 +11,7 @@ import re
 
 
 class Command(BaseCommand):
-    help = 'Import apps and reviews from Google Play Store CSV files'
+    help = 'Fast import apps and reviews from Google Play Store CSV files using bulk operations'
 
     def add_arguments(self, parser):
         parser.add_argument(
@@ -47,6 +47,12 @@ class Command(BaseCommand):
             action='store_true',
             help='Import only reviews, skip apps'
         )
+        parser.add_argument(
+            '--batch-size',
+            type=int,
+            default=1000,
+            help='Batch size for bulk operations (default: 1000)'
+        )
 
     def handle(self, *args, **options):
         apps_file = options['apps_file']
@@ -55,8 +61,9 @@ class Command(BaseCommand):
         clear_existing = options.get('clear_existing', False)
         apps_only = options.get('apps_only', False)
         reviews_only = options.get('reviews_only', False)
+        batch_size = options.get('batch_size', 1000)
 
-        self.stdout.write(self.style.SUCCESS('🚀 Starting CSV import process...'))
+        self.stdout.write(self.style.SUCCESS('🚀 Starting FAST CSV import process...'))
         
         # Clear existing data if requested
         if clear_existing:
@@ -64,15 +71,13 @@ class Command(BaseCommand):
         
         # Import apps first (unless reviews-only)
         if not reviews_only:
-            self.import_apps(apps_file, limit)
+            self.fast_import_apps(apps_file, limit, batch_size)
         
         # Then import reviews (unless apps-only)
         if not apps_only:
-            self.import_reviews(reviews_file, limit)
-            
-            # No need to update ratings - they come directly from CSV
+            self.fast_import_reviews(reviews_file, limit, batch_size)
         
-        self.stdout.write(self.style.SUCCESS('✅ CSV import completed successfully!'))
+        self.stdout.write(self.style.SUCCESS('✅ FAST CSV import completed successfully!'))
 
     def clear_existing_data(self):
         """Clear existing apps and reviews data completely"""
@@ -89,7 +94,6 @@ class Command(BaseCommand):
         self.stdout.write(f'Cleared {app_count} apps')
         
         # Clear imported users (they will be recreated)
-        from django.contrib.auth.models import User
         imported_users = User.objects.filter(username__startswith='user')
         imported_user_count = imported_users.count()
         imported_users.delete()
@@ -97,16 +101,18 @@ class Command(BaseCommand):
         
         self.stdout.write(self.style.SUCCESS('✅ Existing data cleared completely'))
 
-    def import_apps(self, file_path, limit=None):
-        """Import apps from CSV file"""
-        self.stdout.write(f'📱 Importing apps from {file_path}...')
+    def fast_import_apps(self, file_path, limit=None, batch_size=1000):
+        """Fast import apps using bulk_create"""
+        self.stdout.write(f'📱 Fast importing apps from {file_path}...')
         
         if not os.path.exists(file_path):
             self.stdout.write(self.style.ERROR(f'File not found: {file_path}'))
             return
         
+        apps_to_create = []
         apps_created = 0
-        apps_updated = 0
+        apps_skipped = 0
+        existing_app_names = set(App.objects.values_list('name', flat=True))
         
         with open(file_path, 'r', encoding='utf-8') as file:
             reader = csv.DictReader(file)
@@ -116,60 +122,70 @@ class Command(BaseCommand):
                     break
                 
                 try:
-                    with transaction.atomic():
-                        app_data = self.parse_app_data(row)
-                        app, created = App.objects.get_or_create(
-                            name=app_data['name'],
-                            defaults=app_data
-                        )
+                    app_data = self.parse_app_data(row)
+                    
+                    # Skip if app already exists or invalid data
+                    if not app_data or app_data['name'] in existing_app_names:
+                        apps_skipped += 1
+                        continue
+                    
+                    apps_to_create.append(App(**app_data))
+                    existing_app_names.add(app_data['name'])  # Track to avoid duplicates in same batch
+                    
+                    # Bulk create when batch is full
+                    if len(apps_to_create) >= batch_size:
+                        App.objects.bulk_create(apps_to_create, ignore_conflicts=True)
+                        apps_created += len(apps_to_create)
+                        apps_to_create = []
+                        self.stdout.write(f'Created {apps_created} apps...')
                         
-                        if created:
-                            apps_created += 1
-                        else:
-                            # Update existing app with new data
-                            for key, value in app_data.items():
-                                setattr(app, key, value)
-                            app.save()
-                            apps_updated += 1
-                        
-                        if (i + 1) % 100 == 0:
-                            self.stdout.write(f'Processed {i + 1} apps...')
-                            
                 except Exception as e:
-                    self.stdout.write(
-                        self.style.WARNING(f'Error processing app {row.get("App", "Unknown")}: {str(e)}')
-                    )
+                    apps_skipped += 1
                     continue
         
+        # Create remaining apps
+        if apps_to_create:
+            App.objects.bulk_create(apps_to_create, ignore_conflicts=True)
+            apps_created += len(apps_to_create)
+        
         self.stdout.write(
-            self.style.SUCCESS(f'✅ Apps import completed: {apps_created} created, {apps_updated} updated')
+            self.style.SUCCESS(f'✅ Fast apps import completed: {apps_created} created, {apps_skipped} skipped')
         )
 
-    def import_reviews(self, file_path, limit=None):
-        """Import reviews from CSV file"""
-        self.stdout.write(f'📝 Importing reviews from {file_path}...')
+    def fast_import_reviews(self, file_path, limit=None, batch_size=1000):
+        """Fast import reviews using bulk_create"""
+        self.stdout.write(f'📝 Fast importing reviews from {file_path}...')
         
         if not os.path.exists(file_path):
             self.stdout.write(self.style.ERROR(f'File not found: {file_path}'))
             return
         
-        # Create or get multiple users for imported reviews to avoid unique constraint
-        users = []
-        for i in range(10):  # Create 10 users
-            user, created = User.objects.get_or_create(
+        # Create users in bulk first
+        self.stdout.write('Creating users for reviews...')
+        users_to_create = []
+        for i in range(100):  # Create 100 users for better distribution
+            users_to_create.append(User(
                 username=f'user{i}',
-                defaults={
-                    'email': f'user{i}@example.com',
-                    'first_name': f'User{i}',
-                    'last_name': '',
-                    'is_active': True
-                }
-            )
-            users.append(user)
+                email=f'user{i}@example.com',
+                first_name=f'User{i}',
+                last_name='',
+                is_active=True
+            ))
         
+        # Use bulk_create with ignore_conflicts to handle existing users
+        User.objects.bulk_create(users_to_create, ignore_conflicts=True)
+        users = list(User.objects.filter(username__startswith='user').order_by('username'))
+        self.stdout.write(f'Ready with {len(users)} users for reviews')
+        
+        # Cache all apps for faster lookup
+        self.stdout.write('Caching apps for lookup...')
+        app_cache = {app.name: app for app in App.objects.all()}
+        self.stdout.write(f'Cached {len(app_cache)} apps')
+        
+        reviews_to_create = []
         reviews_created = 0
         reviews_skipped = 0
-        user_index = 0
+        user_app_combinations = set()
         
         with open(file_path, 'r', encoding='utf-8') as file:
             reader = csv.DictReader(file)
@@ -179,55 +195,79 @@ class Command(BaseCommand):
                     break
                 
                 try:
-                    with transaction.atomic():
-                        # Rotate through users to avoid unique constraint
-                        current_user = users[user_index % len(users)]
-                        user_index += 1
+                    app_name = row.get('App', '').strip()
+                    review_text = row.get('Translated_Review', '').strip()
+                    sentiment = row.get('Sentiment', '').strip()
+                    sentiment_polarity = self.parse_float(row.get('Sentiment_Polarity', '0'))
+                    
+                    # Skip if essential data is missing
+                    if not app_name or not review_text or review_text.lower() == 'nan':
+                        reviews_skipped += 1
+                        continue
+                    
+                    # Get app from cache
+                    app = app_cache.get(app_name)
+                    if not app:
+                        reviews_skipped += 1
+                        continue
+                    
+                    # Find available user for this app
+                    user = None
+                    for u in users:
+                        combo = (u.id, app.id)
+                        if combo not in user_app_combinations:
+                            user = u
+                            user_app_combinations.add(combo)
+                            break
+                    
+                    if not user:
+                        reviews_skipped += 1
+                        continue
+                    
+                    # Convert sentiment to rating
+                    rating = self.sentiment_to_rating(sentiment, sentiment_polarity)
+                    
+                    reviews_to_create.append(Review(
+                        app=app,
+                        user=user,
+                        content=review_text[:1000],
+                        rating=rating,
+                        status='approved',
+                        sentiment_score=sentiment_polarity,
+                        metadata={
+                            'sentiment': sentiment,
+                            'sentiment_polarity': sentiment_polarity,
+                            'sentiment_subjectivity': self.parse_float(row.get('Sentiment_Subjectivity', '0')),
+                            'imported_from': 'review_csv'
+                        }
+                    ))
+                    
+                    # Bulk create when batch is full
+                    if len(reviews_to_create) >= batch_size:
+                        Review.objects.bulk_create(reviews_to_create, ignore_conflicts=True)
+                        reviews_created += len(reviews_to_create)
+                        reviews_to_create = []
+                        self.stdout.write(f'Created {reviews_created} reviews...')
                         
-                        review_data = self.parse_review_data(row, current_user)
-                        
-                        if not review_data:
-                            reviews_skipped += 1
-                            continue
-                        
-                        # Check if review already exists for this user and app
-                        existing_review = Review.objects.filter(
-                            app=review_data['app'],
-                            user=current_user
-                        ).first()
-                        
-                        if not existing_review:
-                            Review.objects.create(**review_data)
-                            reviews_created += 1
-                        else:
-                            # Try with next user
-                            for alt_user in users:
-                                if not Review.objects.filter(
-                                    app=review_data['app'],
-                                    user=alt_user
-                                ).exists():
-                                    review_data['user'] = alt_user
-                                    Review.objects.create(**review_data)
-                                    reviews_created += 1
-                                    break
-                            else:
-                                reviews_skipped += 1
-                        
-                        if (i + 1) % 100 == 0:
-                            self.stdout.write(f'Processed {i + 1} reviews...')
-                            
                 except Exception as e:
-                    self.stdout.write(
-                        self.style.WARNING(f'Error processing review for {row.get("App", "Unknown")}: {str(e)}')
-                    )
+                    reviews_skipped += 1
                     continue
         
+        # Create remaining reviews
+        if reviews_to_create:
+            Review.objects.bulk_create(reviews_to_create, ignore_conflicts=True)
+            reviews_created += len(reviews_to_create)
+        
         self.stdout.write(
-            self.style.SUCCESS(f'✅ Reviews import completed: {reviews_created} created, {reviews_skipped} skipped')
+            self.style.SUCCESS(f'✅ Fast reviews import completed: {reviews_created} created, {reviews_skipped} skipped')
         )
 
     def parse_app_data(self, row):
         """Parse app data from CSV row"""
+        name = row.get('App', '').strip()[:200]
+        if not name:
+            return None
+        
         # Clean and parse size
         size_str = row.get('Size', '').strip()
         size_mb = self.parse_size_to_mb(size_str)
@@ -261,18 +301,18 @@ class Command(BaseCommand):
         
         description = ". ".join(description_parts) if description_parts else "No description available"
         
-        # Use app name as developer for now (CSV doesn't have separate developer field)
-        developer = row.get('App', '').strip()[:200]
+        # Use app name as developer for now
+        developer = name[:200]
         
         return {
-            'name': row.get('App', '').strip()[:200],  # Limit to model max_length
+            'name': name,
             'description': description,
             'developer': developer,
             'category': category,
             'version': row.get('Current Ver', '').strip()[:50],
             'size_mb': size_mb,
-            'average_rating': rating,  # Use rating directly from CSV
-            'total_ratings': reviews_count,  # Use review count directly from CSV
+            'average_rating': rating,
+            'total_ratings': reviews_count,
             'last_updated': last_updated,
             'metadata': {
                 'installs': row.get('Installs', ''),
@@ -283,47 +323,6 @@ class Command(BaseCommand):
                 'android_version': row.get('Android Ver', ''),
                 'is_free': is_free,
                 'imported_from': 'google_play_csv'
-            }
-        }
-
-    def parse_review_data(self, row, default_user):
-        """Parse review data from CSV row"""
-        app_name = row.get('App', '').strip()
-        review_text = row.get('Translated_Review', '').strip()
-        sentiment = row.get('Sentiment', '').strip()
-        sentiment_polarity = self.parse_float(row.get('Sentiment_Polarity', '0'))
-        
-        # Skip if essential data is missing
-        if not app_name or not review_text or review_text.lower() == 'nan':
-            return None
-        
-        # Find the app
-        try:
-            app = App.objects.get(name=app_name)
-        except App.DoesNotExist:
-            self.stdout.write(
-                self.style.WARNING(f'App not found: {app_name}')
-            )
-            return None
-        
-        # Convert sentiment to rating (1-5 scale)
-        rating = self.sentiment_to_rating(sentiment, sentiment_polarity)
-        
-        # Set all imported reviews as approved so they're visible in the frontend
-        status = 'approved'
-        
-        return {
-            'app': app,
-            'user': default_user,
-            'content': review_text[:1000],  # Limit content length
-            'rating': rating,
-            'status': status,
-            'sentiment_score': sentiment_polarity,
-            'metadata': {
-                'sentiment': sentiment,
-                'sentiment_polarity': sentiment_polarity,
-                'sentiment_subjectivity': self.parse_float(row.get('Sentiment_Subjectivity', '0')),
-                'imported_from': 'review_csv'
             }
         }
 
@@ -362,7 +361,6 @@ class Command(BaseCommand):
     def parse_int(self, value):
         """Safely parse integer value"""
         try:
-            # Remove commas and plus signs
             clean_value = str(value).replace(',', '').replace('+', '')
             return int(float(clean_value)) if clean_value and clean_value.lower() != 'nan' else 0
         except:
@@ -374,7 +372,6 @@ class Command(BaseCommand):
             return None
         
         try:
-            # Try different date formats
             formats = [
                 '%B %d, %Y',  # January 7, 2018
                 '%Y-%m-%d',   # 2018-01-07
@@ -384,7 +381,6 @@ class Command(BaseCommand):
             for fmt in formats:
                 try:
                     naive_date = datetime.strptime(date_str, fmt)
-                    # Convert to timezone-aware datetime
                     return timezone.make_aware(naive_date, timezone.get_current_timezone())
                 except ValueError:
                     continue
@@ -396,11 +392,8 @@ class Command(BaseCommand):
     def sentiment_to_rating(self, sentiment, polarity):
         """Convert sentiment to 1-5 rating scale"""
         if sentiment.lower() == 'positive':
-            # Positive sentiment: 4-5 stars based on polarity
             return 5 if polarity > 0.5 else 4
         elif sentiment.lower() == 'negative':
-            # Negative sentiment: 1-2 stars based on polarity
             return 1 if polarity < -0.5 else 2
         else:
-            # Neutral or unknown sentiment: 3 stars
             return 3

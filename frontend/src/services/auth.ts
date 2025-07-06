@@ -7,6 +7,7 @@ export interface User {
   first_name?: string;
   last_name?: string;
   is_supervisor: boolean;
+  is_superuser?: boolean;
   created_at?: string;
 }
 

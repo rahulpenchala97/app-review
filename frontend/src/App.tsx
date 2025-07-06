@@ -13,8 +13,8 @@ import RegisterPage from './pages/RegisterPage';
 import SearchPage from './pages/SearchPage';
 import AppDetailPage from './pages/AppDetailPage';
 import MyReviewsPage from './pages/MyReviewsPage';
-import ModerationPage from './pages/ModerationPage';
 import ProfilePage from './pages/ProfilePage';
+import UserManagementPage from './pages/UserManagementPage';
 
 function App() {
   return (
@@ -90,11 +90,20 @@ function App() {
               </ProtectedRoute>
             } />
 
-            {/* Supervisor Only Routes */}
-            <Route path="/moderate" element={
+            {/* Supervisor and Admin Routes */}
+            <Route path="/user-management" element={
               <ProtectedRoute requireSupervisor={true}>
                 <Layout>
-                  <ModerationPage />
+                  <UserManagementPage />
+                </Layout>
+              </ProtectedRoute>
+            } />
+
+            {/* Legacy Admin Routes */}
+            <Route path="/admin/users" element={
+              <ProtectedRoute>
+                <Layout>
+                  <UserManagementPage />
                 </Layout>
               </ProtectedRoute>
             } />

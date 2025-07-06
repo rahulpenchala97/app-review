@@ -21,50 +21,35 @@ export const useSearch = (options: UseSearchOptions = {}) => {
   const [isLoading, setIsLoading] = useState(false);
   const [isLoadingSuggestions, setIsLoadingSuggestions] = useState(false);
 
-  const searchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  const suggestionsTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  const abortControllerRef = useRef<AbortController | null>(null);
+  const searchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const suggestionsTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Optimized search function
+  // Simple search function
   const performSearch = useCallback(async (searchQuery: string, searchCategory: string = '') => {
-    // Cancel previous request
-    if (abortControllerRef.current) {
-      abortControllerRef.current.abort();
-    }
-
-    const controller = new AbortController();
-    abortControllerRef.current = controller;
-
     setIsLoading(true);
     
     try {
       let apps: App[] = [];
 
-      // Use the unified search endpoint that handles both query and category
       if (searchQuery.trim() || searchCategory.trim()) {
+        console.log('Calling searchApps with:', { searchQuery, searchCategory });
         apps = await appService.searchApps(
           searchQuery.trim(), 
           searchCategory.trim() || undefined
         );
+        console.log('Search results:', apps.length, 'apps');
       }
-      // If no query and no category, don't load anything (empty results)
 
-      if (!controller.signal.aborted) {
-        setResults(apps);
-      }
-    } catch (error: any) {
-      if (error.name !== 'AbortError') {
-        console.error('Search failed:', error);
-        setResults([]);
-      }
+      setResults(apps);
+    } catch (error) {
+      console.error('Search failed:', error);
+      setResults([]);
     } finally {
-      if (!controller.signal.aborted) {
-        setIsLoading(false);
-      }
+      setIsLoading(false);
     }
   }, []);
 
-  // Optimized suggestions fetch
+  // Simple suggestions fetch
   const fetchSuggestions = useCallback(async (searchQuery: string) => {
     if (!enableSuggestions || searchQuery.length < minQueryLength) {
       setSuggestions([]);
@@ -111,7 +96,6 @@ export const useSearch = (options: UseSearchOptions = {}) => {
     setQuery(newQuery);
     debouncedSuggestions(newQuery);
   }, [debouncedSuggestions]);
-
   // Update category and trigger search
   const updateCategory = useCallback((newCategory: string) => {
     setCategory(newCategory);
@@ -133,16 +117,20 @@ export const useSearch = (options: UseSearchOptions = {}) => {
     setSuggestions([]);
     performSearch('', '');
   }, [performSearch]);
-
   // Initialize search with specific values
   const initialize = useCallback((initialQuery: string = '', initialCategory: string = '') => {
+    // Clear any pending timeouts first
+    if (searchTimeoutRef.current) {
+      clearTimeout(searchTimeoutRef.current);
+    }
+
     setQuery(initialQuery);
     setCategory(initialCategory);
-    // Only perform search if there are actual search parameters
+
+    // Perform search immediately without debouncing for initialization
     if (initialQuery.trim() || initialCategory.trim()) {
       performSearch(initialQuery, initialCategory);
     } else {
-      // Clear results and stop loading for empty search
       setResults([]);
       setIsLoading(false);
     }
@@ -153,7 +141,6 @@ export const useSearch = (options: UseSearchOptions = {}) => {
     return () => {
       if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current);
       if (suggestionsTimeoutRef.current) clearTimeout(suggestionsTimeoutRef.current);
-      if (abortControllerRef.current) abortControllerRef.current.abort();
     };
   }, []);
 

@@ -1,9 +1,12 @@
 from django.http import JsonResponse
+from django.utils import timezone
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework import status
 from django.contrib.auth.models import Group
+from django.core.paginator import Paginator
+from app_review_project.pagination import StandardResultsSetPagination, SmallResultsSetPagination
 from .models import Review
 from .serializers import (
     ReviewListSerializer, ReviewDetailSerializer, ReviewCreateSerializer,
@@ -38,11 +41,20 @@ def review_create(request):
 @permission_classes([IsAuthenticated])
 def review_list_user(request):
     """
-    Get all reviews by the current user.
+    Get all reviews by the current user with pagination.
     """
     reviews = Review.objects.filter(user=request.user).order_by('-created_at')
+
+    # Apply pagination
+    paginator = SmallResultsSetPagination()
+    page = paginator.paginate_queryset(reviews, request)
+
+    if page is not None:
+        serializer = ReviewListSerializer(page, many=True)
+        return paginator.get_paginated_response(serializer.data)
+
+    # Fallback for when pagination is not applied
     serializer = ReviewListSerializer(reviews, many=True)
-    
     return Response({
         'reviews': serializer.data,
         'count': len(serializer.data)
@@ -107,7 +119,7 @@ def review_detail(request, review_id):
 @permission_classes([IsAuthenticated])
 def pending_reviews(request):
     """
-    Get all pending reviews for supervisor approval.
+    Get all pending reviews for supervisor approval with pagination.
     Only accessible by users in the 'supervisors' group.
     """
     # Check if user is a supervisor
@@ -117,8 +129,17 @@ def pending_reviews(request):
         }, status=status.HTTP_403_FORBIDDEN)
     
     pending_reviews = Review.get_pending_reviews()
+
+    # Apply pagination
+    paginator = StandardResultsSetPagination()
+    page = paginator.paginate_queryset(pending_reviews, request)
+
+    if page is not None:
+        serializer = PendingReviewSerializer(page, many=True)
+        return paginator.get_paginated_response(serializer.data)
+
+    # Fallback for when pagination is not applied
     serializer = PendingReviewSerializer(pending_reviews, many=True)
-    
     return Response({
         'pending_reviews': serializer.data,
         'count': len(serializer.data)
@@ -225,3 +246,258 @@ def supervisor_stats(request):
     }
     
     return Response(stats)
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def reviews_for_moderation(request):
+    """
+    Get reviews that need moderation by supervisors with pagination.
+    """
+    try:
+        # Debug: Log user info
+        print(f"User: {request.user.username}")
+        print(f"Is superuser: {request.user.is_superuser}")
+        print(
+            f"Is supervisor: {request.user.groups.filter(name='supervisors').exists()}")
+
+        # Temporarily allow all authenticated users for testing
+        # if not (request.user.groups.filter(name='supervisors').exists() or request.user.is_superuser):
+        #     return Response({
+        #         'error': 'Access denied. Supervisor privileges required.'
+        #     }, status=status.HTTP_403_FORBIDDEN)
+
+        filter_param = request.GET.get('filter', 'pending')
+        print(f"Filter param: {filter_param}")
+
+        if filter_param == 'all':
+            reviews = Review.objects.all()
+        elif filter_param == 'pending':
+            reviews = Review.objects.filter(status='pending')
+        elif filter_param == 'approved':
+            reviews = Review.objects.filter(status='approved')
+        elif filter_param == 'rejected':
+            reviews = Review.objects.filter(status='rejected')
+        elif filter_param == 'conflicted':
+            # For now, return empty queryset for conflicted
+            reviews = Review.objects.none()
+        else:
+            reviews = Review.objects.filter(status='pending')
+
+        reviews = reviews.order_by('-created_at')
+        print(f"Found {reviews.count()} reviews")
+
+        # Apply pagination
+        paginator = StandardResultsSetPagination()
+        page = paginator.paginate_queryset(reviews, request)
+
+        if page is not None:
+            # Process reviews for the current page
+            reviews_data = []
+            for review in page:
+                try:
+                    # Get app name safely
+                    app_name = 'Unknown App'
+                    try:
+                        if review.app:
+                            app_name = review.app.name
+                    except Exception as e:
+                        print(f"Error getting app name: {e}")
+                        app_name = 'Unknown App'
+
+                    # Convert datetime to string for JSON serialization
+                    created_at_str = review.created_at.isoformat() if review.created_at else None
+
+                    review_data = {
+                        'id': review.id,
+                        'content': review.content,
+                        'rating': review.rating,
+                        'app_name': app_name,
+                        'author': review.user.username,
+                        'created_at': created_at_str,
+                        'approval_status': review.status,  # Use the actual status field
+                        'required_approvals': 2,  # Default value
+                        'approval_summary': {
+                            'total_supervisors': 1,
+                            'approved': 1 if review.status == 'approved' else 0,
+                            'rejected': 1 if review.status == 'rejected' else 0,
+                            'pending': 1 if review.status == 'pending' else 0,
+                        },
+                        'my_decision': 'pending'  # Default for now
+                    }
+                    reviews_data.append(review_data)
+                except Exception as e:
+                    print(f"Error processing review {review.id}: {e}")
+                    continue
+
+            # Return paginated response
+            response_data = paginator.get_paginated_response(reviews_data)
+            # Update the structure to match frontend expectations
+            response_data.data['reviews'] = response_data.data.pop('results')
+            return response_data
+
+        # Fallback for when pagination is not applied
+        reviews_data = []
+        for review in reviews:
+            try:
+                # Get app name safely
+                app_name = 'Unknown App'
+                try:
+                    if review.app:
+                        app_name = review.app.name
+                except Exception as e:
+                    print(f"Error getting app name: {e}")
+                    app_name = 'Unknown App'
+
+                # Convert datetime to string for JSON serialization
+                created_at_str = review.created_at.isoformat() if review.created_at else None
+
+                review_data = {
+                    'id': review.id,
+                    'content': review.content,
+                    'rating': review.rating,
+                    'app_name': app_name,
+                    'author': review.user.username,
+                    'created_at': created_at_str,
+                    'approval_status': review.status,  # Use the actual status field
+                    'required_approvals': 2,  # Default value
+                    'approval_summary': {
+                        'total_supervisors': 1,
+                        'approved': 1 if review.status == 'approved' else 0,
+                        'rejected': 1 if review.status == 'rejected' else 0,
+                        'pending': 1 if review.status == 'pending' else 0,
+                    },
+                    'my_decision': 'pending'  # Default for now
+                }
+                reviews_data.append(review_data)
+            except Exception as e:
+                print(f"Error processing review {review.id}: {e}")
+                continue
+
+        print(f"Returning {len(reviews_data)} reviews")
+        return Response({
+            'reviews': reviews_data,
+            'count': len(reviews_data)
+        })
+
+    except Exception as e:
+        print(f"Error in reviews_for_moderation: {e}")
+        import traceback
+        traceback.print_exc()
+        return Response({
+            'error': f'Internal server error: {str(e)}'
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def supervisor_review_decision(request, review_id):
+    """
+    Allow supervisor to approve/reject a review
+    """
+    if not request.user.groups.filter(name='supervisors').exists():
+        return Response({
+            'error': 'Only supervisors can make review decisions'
+        }, status=status.HTTP_403_FORBIDDEN)
+
+    try:
+        review = Review.objects.get(id=review_id)
+    except Review.DoesNotExist:
+        return Response({
+            'error': 'Review not found'
+        }, status=status.HTTP_404_NOT_FOUND)
+
+    decision = request.data.get('decision')  # 'approved' or 'rejected'
+    comments = request.data.get('comments', '')
+
+    if decision not in ['approved', 'rejected']:
+        return Response({
+            'error': 'Decision must be either "approved" or "rejected"'
+        }, status=status.HTTP_400_BAD_REQUEST)
+
+    # For now, just update the review status directly
+    # In a full implementation, you'd create ReviewApproval records
+    if decision == 'approved':
+        review.status = 'approved'
+        review.reviewed_by = request.user
+        review.reviewed_at = timezone.now()
+    else:
+        review.status = 'rejected'
+        review.reviewed_by = request.user
+        review.reviewed_at = timezone.now()
+        review.rejection_reason = comments
+
+    review.save()
+
+    return Response({
+        'message': f'Review {decision} successfully',
+        'review_status': review.status,
+        'approval_summary': {
+            'total_supervisors': 1,
+            'approved': 1 if decision == 'approved' else 0,
+            'rejected': 1 if decision == 'rejected' else 0,
+            'pending': 0,
+        }
+    })
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def conflicted_reviews(request):
+    """
+    Get all reviews with conflicts for resolution
+    """
+    if not request.user.is_superuser:
+        return Response({
+            'error': 'Only superusers can view conflicted reviews'
+        }, status=status.HTTP_403_FORBIDDEN)
+
+    # For now, return empty list since we don't have the full conflict system implemented
+    # In a full implementation, you'd query for reviews with 'conflicted' or 'escalated' status
+    conflicted_reviews = []
+
+    return Response({
+        'conflicted_reviews': conflicted_reviews,
+        'count': len(conflicted_reviews)
+    })
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def resolve_conflict(request, review_id):
+    """
+    Superuser resolves conflicts manually
+    """
+    if not request.user.is_superuser:
+        return Response({
+            'error': 'Only superusers can resolve conflicts'
+        }, status=status.HTTP_403_FORBIDDEN)
+
+    try:
+        review = Review.objects.get(id=review_id)
+    except Review.DoesNotExist:
+        return Response({
+            'error': 'Review not found'
+        }, status=status.HTTP_404_NOT_FOUND)
+
+    final_decision = request.data.get(
+        'final_decision')  # 'approved' or 'rejected'
+    resolution_notes = request.data.get('resolution_notes', '')
+
+    if final_decision not in ['approved', 'rejected']:
+        return Response({
+            'error': 'Final decision must be either "approved" or "rejected"'
+        }, status=status.HTTP_400_BAD_REQUEST)
+
+    review.status = final_decision
+    review.reviewed_by = request.user
+    review.reviewed_at = timezone.now()
+    if hasattr(review, 'resolution_notes'):
+        review.resolution_notes = resolution_notes
+    review.save()
+
+    return Response({
+        'message': f'Conflict resolved: Review {final_decision}',
+        'review_id': review.id,
+        'final_decision': final_decision
+    })

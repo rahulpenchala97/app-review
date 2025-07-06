@@ -72,19 +72,31 @@ const Header: React.FC = () => {
                     My Reviews
                   </Link>
                   
-                  {user?.is_supervisor && (
+                  {(user?.is_supervisor || user?.is_superuser) && (
                     <Link
-                      to="/moderate"
+                      to="/user-management"
                       className={`px-3 py-2 rounded-md text-sm font-medium transition-colors ${
-                        isActive('/moderate') 
+                        isActive('/user-management') 
                           ? 'text-primary-600 bg-primary-50' 
                           : 'text-gray-700 hover:text-primary-600 hover:bg-gray-50'
                       }`}
                     >
-                      Moderate
+                      Management
                     </Link>
                   )}
-                  
+
+                  {user?.is_superuser && (
+                    <Link
+                      to="/admin/users"
+                      className={`px-3 py-2 rounded-md text-sm font-medium transition-colors ${isActive('/admin/users')
+                        ? 'text-primary-600 bg-primary-50'
+                        : 'text-gray-700 hover:text-primary-600 hover:bg-gray-50'
+                        }`}
+                    >
+                      Legacy Users
+                    </Link>
+                  )}
+
                   <Link
                     to="/profile"
                     className={`px-3 py-2 rounded-md text-sm font-medium transition-colors ${
