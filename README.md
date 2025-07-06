@@ -4,7 +4,7 @@
 
 A production-ready application demonstrating modern web development practices with Django REST Framework backend and React TypeScript frontend.
 
-## 🚀 Quick Deploy (Any OS)
+## Quick Deployment
 
 **Prerequisites**: Docker Desktop installed
 
@@ -19,6 +19,19 @@ docker compose up --build
 - **Frontend**: http://localhost:3000
 - **API**: http://localhost:8000/api
 - **Admin**: http://localhost:8000/admin (admin/admin123)
+
+**Default User Credentials**:
+| Role | Username | Password | Description |
+|------|----------|----------|-------------|
+| **Admin** | `admin` | `admin123` | Full system access, can override any review |
+| **Supervisor** | `sup1` | `admin123` | Can moderate and vote on reviews |
+| **Supervisor** | `sup2` | `admin123` | Additional supervisor for testing workflow |
+| **Supervisor** | `sup3` | `admin123` | Third supervisor for testing workflow |
+| **User** | `user1` | `admin123` | Regular user, can submit and view reviews |
+| **User** | `user2` | `admin123` | Additional user for testing interactions |
+| **User** | `user3-user10` | `admin123` | More test users (user3, user4, ..., user10) |
+
+*💡 **Note**: These are default credentials for development/demo purposes. All users use the same password `admin123`. In production, ensure strong passwords and proper user management.*
 
 *Startup time: ~2 minutes (includes database setup and data loading)*
 
@@ -133,5 +146,3 @@ curl -H "Authorization: Bearer <token>" http://localhost:8000/api/reviews/
 - **Testing**: API endpoints testable via admin interface
 
 ---
-
-**Ready for review in 2 minutes** ⚡

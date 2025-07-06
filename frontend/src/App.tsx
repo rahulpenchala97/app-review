@@ -66,7 +66,7 @@ function App() {
                 <SearchPage />
               </Layout>
             } />
-            
+
             <Route path="/apps/:id" element={
               <Layout>
                 <AppDetailPage />

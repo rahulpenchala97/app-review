@@ -7,6 +7,7 @@ urlpatterns = [
     # App search and discovery
     path('search/suggestions/', views.app_search_suggestions, name='search_suggestions'),
     path('search/', views.app_search, name='search'),
+    path('search/advanced/', views.app_search_advanced, name='search_advanced'),
     
     # App CRUD operations
     path('', views.app_list, name='list'),

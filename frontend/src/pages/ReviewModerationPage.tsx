@@ -235,6 +235,18 @@ const ReviewModerationPage: React.FC = () => {
 
       {/* Reviews List */}
       <div className="space-y-4">
+        {/* Top Pagination */}
+        {totalPages > 1 && reviews.length > 0 && (
+          <Pagination
+            currentPage={currentPage}
+            totalPages={totalPages}
+            totalCount={totalCount}
+            pageSize={pageSize}
+            onPageChange={handlePageChange}
+            onPageSizeChange={handlePageSizeChange}
+          />
+        )}
+
         {reviews.length === 0 ? (
           <div className="bg-white rounded-lg shadow-md p-12 text-center">
             <div className="text-gray-400 mb-4">
@@ -438,7 +450,7 @@ const ReviewModerationPage: React.FC = () => {
       </div>
 
       {/* Pagination Controls */}
-      {totalPages > 1 && (
+      {totalPages > 1 && reviews.length > 0 && (
         <Pagination
           currentPage={currentPage}
           totalPages={totalPages}
