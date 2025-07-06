@@ -2,6 +2,8 @@ from django.db import models
 from django.contrib.auth.models import User
 from django.core.validators import MinValueValidator, MaxValueValidator
 from django.utils import timezone
+from django.contrib.auth.models import Group
+
 
 
 class Review(models.Model):
@@ -15,6 +17,7 @@ class Review(models.Model):
         ('pending', 'Pending'),
         ('approved', 'Approved'),
         ('rejected', 'Rejected'),
+        ('conflict', 'Conflict - Admin Review Required'),
     ]
     
     # Core fields
@@ -110,3 +113,184 @@ class Review(models.Model):
             app=app,
             status='approved'
         ).select_related('user').order_by('-created_at')
+
+    def get_approval_summary(self):
+        """Get approval summary for this review"""
+        # For approved/rejected reviews that are finalized, don't calculate pending counts
+        # But for conflict status, we need to show the actual vote counts
+        if self.status in ['approved', 'rejected']:
+            return {
+                'total_supervisors': 0,
+                'approved': 0,
+                'rejected': 0,
+                'pending': 0,
+            }
+
+        # Calculate for pending reviews and conflict reviews
+        approvals = self.approvals.all()
+        approved_count = approvals.filter(decision='approved').count()
+        rejected_count = approvals.filter(decision='rejected').count()
+
+        # Get total number of supervisors
+        supervisors_group = Group.objects.get(name='supervisors')
+        total_supervisors = supervisors_group.user_set.count()
+
+        return {
+            'total_supervisors': total_supervisors,
+            'approved': approved_count,
+            'rejected': rejected_count,
+            'pending': total_supervisors - approved_count - rejected_count,
+        }
+
+    def get_supervisor_decision(self, supervisor):
+        """Get the decision of a specific supervisor for this review"""
+        try:
+            approval = self.approvals.get(supervisor=supervisor)
+            return approval.decision
+        except ReviewApproval.DoesNotExist:
+            return 'pending'
+
+    def clear_supervisor_approvals(self):
+        """Clear all supervisor approvals for this review (used when review is edited)"""
+        self.approvals.all().delete()
+
+    def check_and_finalize_status(self):
+        """Check if review should be finalized based on supervisor decisions"""
+        summary = self.get_approval_summary()
+
+        # Check if all supervisors have voted
+        total_decisions = summary['approved'] + summary['rejected']
+        all_voted = total_decisions == summary['total_supervisors']
+
+        # Simple majority rule: if more than half of supervisors approve, approve the review
+        # If more than half reject, reject the review
+        # If there's a tie and all have voted, mark as conflict
+        majority_threshold = summary['total_supervisors'] // 2 + 1
+
+        if summary['approved'] >= majority_threshold:
+            self.status = 'approved'
+            self.reviewed_at = timezone.now()
+            # Set reviewed_by to the latest approving supervisor
+            latest_approval = self.approvals.filter(
+                decision='approved').order_by('-created_at').first()
+            if latest_approval:
+                self.reviewed_by = latest_approval.supervisor
+            self.save()
+            if hasattr(self, 'app'):
+                self.app.update_average_rating()
+            return 'approved'
+        elif summary['rejected'] >= majority_threshold:
+            self.status = 'rejected'
+            self.reviewed_at = timezone.now()
+            # Set reviewed_by to the latest rejecting supervisor and get rejection reason
+            latest_rejection = self.approvals.filter(
+                decision='rejected').order_by('-created_at').first()
+            if latest_rejection:
+                self.reviewed_by = latest_rejection.supervisor
+                if latest_rejection.comments:
+                    self.rejection_reason = latest_rejection.comments
+            self.save()
+            return 'rejected'
+        elif all_voted and summary['approved'] == summary['rejected']:
+            # Conflict: equal number of approvals and rejections
+            self.status = 'conflict'
+            self.reviewed_at = timezone.now()
+            self.save()
+
+            # Trigger notification to admin and all supervisors about conflict
+            self._notify_conflict()
+            return 'conflict'
+
+        return 'pending'
+
+    def _notify_conflict(self):
+        """Notify admin and supervisors about a conflict requiring admin resolution"""
+        from django.contrib.auth.models import Group
+        from django.core.mail import send_mail
+        from django.conf import settings
+
+        try:
+            # Get admin users and supervisors
+            admin_group = Group.objects.get(name='admins')
+            supervisor_group = Group.objects.get(name='supervisors')
+
+            admin_emails = list(admin_group.user_set.values_list(
+                'email', flat=True).filter(email__isnull=False))
+            supervisor_emails = list(supervisor_group.user_set.values_list(
+                'email', flat=True).filter(email__isnull=False))
+
+            all_emails = list(set(admin_emails + supervisor_emails))
+
+            if all_emails:
+                subject = f'Review Conflict Requires Admin Resolution - Review #{self.id}'
+                message = f"""
+A review conflict has occurred and requires admin resolution.
+
+Review Details:
+- Review ID: {self.id}
+- App: {self.app.name}
+- User: {self.user.username}
+- Title: {self.title or 'No title'}
+- Content: {self.content[:200]}{'...' if len(self.content) > 200 else ''}
+
+Conflict Details:
+- Equal number of approvals and rejections from supervisors
+- Total supervisors: {self.get_approval_summary()['total_supervisors']}
+- Approvals: {self.get_approval_summary()['approved']}
+- Rejections: {self.get_approval_summary()['rejected']}
+
+Please review this case manually in the admin panel or conflict resolution page.
+
+Review URL: {getattr(settings, 'BASE_URL', 'http://localhost:3000')}/conflict-resolution
+
+Best regards,
+App Review System
+                """
+
+                # Send email notification
+                send_mail(
+                    subject=subject,
+                    message=message,
+                    from_email=getattr(
+                        settings, 'DEFAULT_FROM_EMAIL', 'noreply@appreview.com'),
+                    recipient_list=all_emails,
+                    fail_silently=True
+                )
+        except Exception as e:
+            # Log the error but don't fail the review process
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.error(
+                f"Failed to send conflict notification for review {self.id}: {str(e)}")
+
+
+class ReviewApproval(models.Model):
+    """
+    Tracks individual supervisor decisions on reviews.
+    Allows multiple supervisors to vote before finalizing a review.
+    """
+
+    DECISION_CHOICES = [
+        ('approved', 'Approved'),
+        ('rejected', 'Rejected'),
+    ]
+
+    review = models.ForeignKey(
+        'Review', on_delete=models.CASCADE, related_name='approvals')
+    supervisor = models.ForeignKey(
+        User, on_delete=models.CASCADE, related_name='review_decisions')
+    decision = models.CharField(max_length=20, choices=DECISION_CHOICES)
+    comments = models.TextField(blank=True, null=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        # One decision per supervisor per review
+        unique_together = ['review', 'supervisor']
+        indexes = [
+            models.Index(fields=['review']),
+            models.Index(fields=['supervisor']),
+            models.Index(fields=['decision']),
+        ]
+
+    def __str__(self):
+        return f"{self.supervisor.username} - {self.review.id} - {self.decision}"

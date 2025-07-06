@@ -1,5 +1,5 @@
 from django.contrib import admin
-from .models import Review
+from .models import Review, ReviewApproval
 
 
 @admin.register(Review)
@@ -62,3 +62,20 @@ class ReviewAdmin(admin.ModelAdmin):
         queryset.update(status='pending', reviewed_by=None, reviewed_at=None)
         self.message_user(request, f'{queryset.count()} reviews marked as pending.')
     mark_pending.short_description = "Mark selected reviews as pending"
+
+
+@admin.register(ReviewApproval)
+class ReviewApprovalAdmin(admin.ModelAdmin):
+    list_display = [
+        'review', 'supervisor', 'decision', 'created_at'
+    ]
+    list_filter = [
+        'decision', 'created_at'
+    ]
+    search_fields = [
+        'review__user__username', 'review__app__name', 'supervisor__username'
+    ]
+    readonly_fields = ['created_at']
+
+    def get_queryset(self, request):
+        return super().get_queryset(request).select_related('review', 'supervisor', 'review__app', 'review__user')

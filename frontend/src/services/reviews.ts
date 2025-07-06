@@ -11,12 +11,19 @@ export interface Review {
   content: string;
   rating: number;
   tags?: string[];
-  status?: 'pending' | 'approved' | 'rejected'; // Optional since pending reviews don't include this
+  status?: 'pending' | 'approved' | 'rejected' | 'conflict'; // Optional since pending reviews don't include this
   created_at: string;
   updated_at?: string;
   reviewed_by?: User;
   reviewed_at?: string;
   rejection_reason?: string;
+  approval_summary?: {
+    total_supervisors: number;
+    approved: number;
+    rejected: number;
+    pending: number;
+  };
+  required_approvals?: number;
 }
 
 export interface CreateReviewData {
@@ -48,7 +55,8 @@ class ReviewService {
 
   async getMyReviews(): Promise<Review[]> {
     const response = await api.get('/api/reviews/my-reviews/');
-    return response.data.reviews || [];
+    // Handle both paginated and non-paginated responses
+    return response.data.results || response.data.reviews || [];
   }
 
   async getAppReviews(appId: number): Promise<Review[]> {
@@ -72,8 +80,27 @@ class ReviewService {
     return response.data;
   }
 
+  async updateReview(reviewId: number, data: CreateReviewData): Promise<Review> {
+    const response = await api.put(`/api/reviews/${reviewId}/`, data);
+    return response.data;
+  }
+
   async deleteReview(reviewId: number): Promise<void> {
     await api.delete(`/api/reviews/${reviewId}/`);
+  }
+
+  async getReviewSupervisorDecisions(reviewId: number): Promise<any> {
+    const response = await api.get(`/api/reviews/${reviewId}/supervisor-decisions/`);
+    return response.data;
+  }
+
+  async adminOverrideReview(reviewId: number, status: 'approved' | 'rejected' | 'pending', rejectionReason?: string): Promise<Review> {
+    const response = await api.post(`/api/reviews/${reviewId}/admin-override/`, {
+      status,
+      rejection_reason: rejectionReason
+    });
+    // The response includes both message and the full review data
+    return response.data;
   }
 }
 

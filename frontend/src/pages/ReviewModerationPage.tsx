@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import toast from 'react-hot-toast';
 import api from '../services/api';
+import reviewService from '../services/reviews';
 import Pagination from '../components/Pagination';
 
 interface Review {
@@ -20,22 +21,16 @@ interface Review {
     pending: number;
   };
   my_decision?: 'approved' | 'rejected' | 'pending';
+  supervisor_decisions?: {
+    supervisor_name: string;
+    decision: 'approved' | 'rejected';
+    comments: string;
+    created_at: string;
+  }[];
 }
 
 const ReviewModerationPage: React.FC = () => {
-  const { user, isAuthenticated } = useAuth();
-  
-  // Debug authentication state
-  const accessToken = localStorage.getItem('access_token');
-  const refreshToken = localStorage.getItem('refresh_token');
-  
-  console.log('Auth Debug:', {
-    user,
-    isAuthenticated,
-    hasAccessToken: !!accessToken,
-    hasRefreshToken: !!refreshToken,
-    tokenLength: accessToken ? accessToken.length : 0
-  });
+  const { user } = useAuth();
 
   const [reviews, setReviews] = useState<Review[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -61,7 +56,6 @@ const ReviewModerationPage: React.FC = () => {
     setIsLoading(true);
     try {
       const token = localStorage.getItem('access_token');
-      console.log('Token:', token ? 'Present' : 'Missing');
       
       if (!token) {
         toast.error('Authentication token missing. Please login again.');
@@ -69,9 +63,7 @@ const ReviewModerationPage: React.FC = () => {
       }
       
       const response = await api.get(`/api/reviews/moderation/?filter=${filter}&page=${page}&page_size=${pageSize}`);
-      
-      console.log('Response data:', response.data);
-      
+
       // Handle paginated response
       if (response.data.reviews) {
         setReviews(response.data.reviews);
@@ -133,6 +125,24 @@ const ReviewModerationPage: React.FC = () => {
   const handleFilterChange = (newFilter: typeof filter) => {
     setFilter(newFilter);
     setCurrentPage(1);
+  };
+
+  const handleAdminOverride = async (reviewId: number, status: 'approved' | 'rejected' | 'pending', rejectionReason?: string) => {
+    setActionLoading(reviewId);
+
+    try {
+      await reviewService.adminOverrideReview(reviewId, status, rejectionReason);
+
+      toast.success(`Review overridden to ${status} successfully`);
+
+      // Refresh the reviews list to reflect changes
+      fetchReviewsForModeration();
+    } catch (error: any) {
+      console.error('Failed to override review:', error);
+      toast.error(error.response?.data?.detail || error.response?.data?.error || 'Failed to override review');
+    } finally {
+      setActionLoading(null);
+    }
   };
 
   const openDecisionModal = (review: Review, decision: 'approved' | 'rejected') => {
@@ -267,7 +277,32 @@ const ReviewModerationPage: React.FC = () => {
 
               {/* Approval Summary */}
               <div className="bg-gray-50 rounded-lg p-4 mb-4">
-                <h4 className="font-medium text-gray-900 mb-2">Approval Status</h4>
+                <div className="flex items-center justify-between mb-3">
+                  <h4 className="font-medium text-gray-900">Approval Status</h4>
+                  <div className="text-sm text-gray-600">
+                    {review.approval_summary.approved + review.approval_summary.rejected} / {review.approval_summary.total_supervisors} supervisors voted
+                  </div>
+                </div>
+
+                {/* Progress Bar for Majority */}
+                <div className="mb-4">
+                  <div className="flex justify-between text-xs text-gray-600 mb-1">
+                    <span>Progress to Majority ({review.required_approvals} needed)</span>
+                    <span>{Math.max(review.approval_summary.approved, review.approval_summary.rejected)} / {review.required_approvals}</span>
+                  </div>
+                  <div className="w-full bg-gray-200 rounded-full h-2">
+                    <div
+                      className={`h-2 rounded-full transition-all duration-300 ${review.approval_summary.approved >= review.approval_summary.rejected
+                        ? 'bg-green-500'
+                        : 'bg-red-500'
+                        }`}
+                      style={{
+                        width: `${Math.min(100, (Math.max(review.approval_summary.approved, review.approval_summary.rejected) / review.required_approvals) * 100)}%`
+                      }}
+                    ></div>
+                  </div>
+                </div>
+
                 <div className="grid grid-cols-4 gap-4 text-sm">
                   <div className="text-center">
                     <div className="text-2xl font-bold text-green-600">{review.approval_summary.approved}</div>
@@ -288,8 +323,40 @@ const ReviewModerationPage: React.FC = () => {
                 </div>
               </div>
 
+              {/* Detailed Supervisor Decisions */}
+              {review.supervisor_decisions && review.supervisor_decisions.length > 0 && (
+                <div className="bg-white border border-gray-200 rounded-lg p-4 mb-4">
+                  <h4 className="font-medium text-gray-900 mb-3">Supervisor Decisions</h4>
+                  <div className="space-y-3">
+                    {review.supervisor_decisions.map((decision, index) => (
+                      <div key={index} className="flex items-start space-x-3 p-3 bg-gray-50 rounded-lg">
+                        <div className={`flex-shrink-0 w-2 h-2 rounded-full mt-2 ${decision.decision === 'approved' ? 'bg-green-500' : 'bg-red-500'
+                          }`}></div>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center space-x-2 mb-1">
+                            <span className="font-medium text-gray-900">{decision.supervisor_name}</span>
+                            <span className={`px-2 py-1 rounded-full text-xs font-medium ${decision.decision === 'approved'
+                              ? 'bg-green-100 text-green-800'
+                              : 'bg-red-100 text-red-800'
+                              }`}>
+                              {decision.decision.charAt(0).toUpperCase() + decision.decision.slice(1)}
+                            </span>
+                            <span className="text-xs text-gray-500">
+                              {new Date(decision.created_at).toLocaleDateString()} at {new Date(decision.created_at).toLocaleTimeString()}
+                            </span>
+                          </div>
+                          {decision.comments && (
+                            <p className="text-sm text-gray-700 mt-1">{decision.comments}</p>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               {/* Action Buttons */}
-              {review.my_decision === 'pending' || !review.my_decision ? (
+              {review.approval_status === 'pending' && (review.my_decision === 'pending' || !review.my_decision) ? (
                 <div className="flex items-center space-x-3">
                   <button
                     onClick={() => openDecisionModal(review, 'approved')}
@@ -312,14 +379,57 @@ const ReviewModerationPage: React.FC = () => {
                     <span>Reject</span>
                   </button>
                 </div>
+              ) : review.approval_status !== 'pending' ? (
+                <div className="bg-gray-50 border border-gray-200 rounded-md p-3">
+                  <p className="text-sm text-gray-600 text-center">
+                    This review has already been {review.approval_status}. No further action needed.
+                  </p>
+                </div>
               ) : (
-                <div className="flex items-center space-x-2">
-                  <span className="text-sm text-gray-600">Your decision:</span>
-                  <span className={`px-3 py-1 rounded-full text-sm font-medium ${
-                    review.my_decision === 'approved' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
-                  }`}>
-                    {review.my_decision?.charAt(0).toUpperCase() + review.my_decision?.slice(1)}
-                  </span>
+                <div className="bg-yellow-50 border border-yellow-200 rounded-md p-3">
+                  <p className="text-sm text-yellow-700 text-center font-medium">
+                    You have already voted on this review: {review.my_decision}
+                  </p>
+                </div>
+              )}
+
+              {/* Admin Override Section */}
+              {user?.is_superuser && (
+                <div className="mt-4 pt-4 border-t border-gray-200">
+                  <div className="bg-blue-50 border border-blue-200 rounded-md p-4">
+                    <p className="text-sm text-blue-700 font-medium mb-2">Admin Override</p>
+                    <p className="text-xs text-blue-600 mb-3">
+                      As an admin, you can override any review status, bypassing the supervisor workflow.
+                    </p>
+                    <div className="flex flex-wrap gap-2">
+                      <button
+                        onClick={() => handleAdminOverride(review.id, 'approved')}
+                        disabled={actionLoading === review.id}
+                        className="bg-green-600 hover:bg-green-700 disabled:bg-green-400 text-white px-3 py-1 rounded text-xs font-medium transition-colors"
+                      >
+                        Override → Approved
+                      </button>
+                      <button
+                        onClick={() => {
+                          const reason = prompt('Please provide a rejection reason:');
+                          if (reason !== null) {
+                            handleAdminOverride(review.id, 'rejected', reason);
+                          }
+                        }}
+                        disabled={actionLoading === review.id}
+                        className="bg-red-600 hover:bg-red-700 disabled:bg-red-400 text-white px-3 py-1 rounded text-xs font-medium transition-colors"
+                      >
+                        Override → Rejected
+                      </button>
+                      <button
+                        onClick={() => handleAdminOverride(review.id, 'pending')}
+                        disabled={actionLoading === review.id}
+                        className="bg-yellow-600 hover:bg-yellow-700 disabled:bg-yellow-400 text-white px-3 py-1 rounded text-xs font-medium transition-colors"
+                      >
+                        Override → Pending
+                      </button>
+                    </div>
+                  </div>
                 </div>
               )}
             </div>
@@ -351,7 +461,7 @@ const ReviewModerationPage: React.FC = () => {
               <div className="mb-4">
                 <p className="text-sm text-gray-600 mb-2">Review content:</p>
                 <div className="bg-gray-50 rounded-lg p-3">
-                  <p className="text-sm text-gray-800">{selectedReview.content}</p>
+                  <p className="text-sm text-gray-800">{selectedReview?.content}</p>
                 </div>
               </div>
 
@@ -370,15 +480,15 @@ const ReviewModerationPage: React.FC = () => {
 
               <div className="flex items-center space-x-3">
                 <button
-                  onClick={() => makeDecision(selectedReview.id, decisionType, decisionComments)}
-                  disabled={actionLoading === selectedReview.id}
+                  onClick={() => selectedReview && makeDecision(selectedReview.id, decisionType, decisionComments)}
+                  disabled={!selectedReview || actionLoading === selectedReview.id}
                   className={`px-4 py-2 rounded-md font-medium transition-colors ${
                     decisionType === 'approved'
                       ? 'bg-green-600 hover:bg-green-700 disabled:bg-green-400'
                       : 'bg-red-600 hover:bg-red-700 disabled:bg-red-400'
                   } text-white`}
                 >
-                  {actionLoading === selectedReview.id ? 'Submitting...' : `Confirm ${decisionType === 'approved' ? 'Approval' : 'Rejection'}`}
+                  {selectedReview && actionLoading === selectedReview.id ? 'Submitting...' : `Confirm ${decisionType === 'approved' ? 'Approval' : 'Rejection'}`}
                 </button>
                 <button
                   onClick={() => setShowDecisionModal(false)}

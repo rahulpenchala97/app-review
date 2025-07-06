@@ -21,7 +21,15 @@ urlpatterns = [
     path('<int:review_id>/resolve-conflict/',
          views.resolve_conflict, name='resolve_conflict'),
     
+    # Admin override (superuser only)
+    path('<int:review_id>/admin-override/',
+         views.admin_override_review, name='admin_override'),
+
     # Statistics
     path('stats/', views.review_stats, name='stats'),
     path('supervisor-stats/', views.supervisor_stats, name='supervisor_stats'),
+
+    # Detailed supervisor decisions
+    path('<int:review_id>/supervisor-decisions/',
+         views.review_supervisor_decisions, name='review_supervisor_decisions'),
 ]

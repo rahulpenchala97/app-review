@@ -60,23 +60,28 @@ class UserLoginSerializer(serializers.Serializer):
 
 class UserProfileSerializer(serializers.ModelSerializer):
     """Serializer for user profile"""
+    id = serializers.IntegerField(source='user.id', read_only=True)
     username = serializers.CharField(source='user.username', read_only=True)
     email = serializers.CharField(source='user.email', read_only=True)
     first_name = serializers.CharField(source='user.first_name', read_only=True)
     last_name = serializers.CharField(source='user.last_name', read_only=True)
     is_supervisor = serializers.SerializerMethodField()
+    is_superuser = serializers.SerializerMethodField()
     
     class Meta:
         model = UserProfile
         fields = [
-            'username', 'email', 'first_name', 'last_name',
+            'id', 'username', 'email', 'first_name', 'last_name',
             'bio', 'avatar', 'location', 'email_notifications',
             'review_notifications', 'reputation_score', 'total_reviews',
-            'helpful_review_count', 'is_supervisor', 'created_at'
+            'helpful_review_count', 'is_supervisor', 'is_superuser', 'created_at'
         ]
     
     def get_is_supervisor(self, obj):
         return obj.is_supervisor
+
+    def get_is_superuser(self, obj):
+        return obj.user.is_superuser
 
 
 class UserProfileUpdateSerializer(serializers.ModelSerializer):

@@ -83,6 +83,18 @@ def user_login(request):
     )
 
 
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def user_logout(request):
+    """
+    Logout user. Since JWT tokens are stateless, we just return a success message.
+    The frontend should remove the tokens from storage.
+    """
+    return Response({
+        'message': 'Logout successful'
+    }, status=status.HTTP_200_OK)
+
+
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def user_profile(request):

@@ -85,18 +85,6 @@ const Header: React.FC = () => {
                     </Link>
                   )}
 
-                  {user?.is_superuser && (
-                    <Link
-                      to="/admin/users"
-                      className={`px-3 py-2 rounded-md text-sm font-medium transition-colors ${isActive('/admin/users')
-                        ? 'text-primary-600 bg-primary-50'
-                        : 'text-gray-700 hover:text-primary-600 hover:bg-gray-50'
-                        }`}
-                    >
-                      Legacy Users
-                    </Link>
-                  )}
-
                   <Link
                     to="/profile"
                     className={`px-3 py-2 rounded-md text-sm font-medium transition-colors ${

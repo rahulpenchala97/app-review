@@ -5,14 +5,22 @@ interface ReviewCardProps {
   review: Review;
   showModerationActions?: boolean;
   showStatusBadge?: boolean;
+  showEditAction?: boolean;
+  showAdminOverride?: boolean;
   onModerate?: (reviewId: number, status: 'approved' | 'rejected', notes?: string) => void;
+  onEdit?: (review: Review) => void;
+  onAdminOverride?: (reviewId: number, status: 'approved' | 'rejected' | 'pending', rejectionReason?: string) => void;
 }
 
 const ReviewCard: React.FC<ReviewCardProps> = ({ 
   review, 
   showModerationActions = false,
   showStatusBadge = true,
-  onModerate 
+  showEditAction = false,
+  showAdminOverride = false,
+  onModerate,
+  onEdit,
+  onAdminOverride
 }) => {
   const getStatusBadge = (status: string) => {
     switch (status) {
@@ -32,6 +40,12 @@ const ReviewCard: React.FC<ReviewCardProps> = ({
         return (
           <span className="bg-yellow-100 text-yellow-800 px-2 py-1 rounded-full text-xs font-medium">
             Pending
+          </span>
+        );
+      case 'conflict':
+        return (
+          <span className="bg-purple-100 text-purple-800 px-2 py-1 rounded-full text-xs font-medium">
+            Conflict - Admin Review Required
           </span>
         );
       default:
@@ -56,6 +70,14 @@ const ReviewCard: React.FC<ReviewCardProps> = ({
     }
   };
 
+  // Debug logging for admin override
+  console.log('ReviewCard debug:', {
+    reviewId: review.id,
+    showAdminOverride,
+    hasOnAdminOverride: !!onAdminOverride,
+    showAdminOverrideSection: showAdminOverride && !!onAdminOverride
+  });
+
   return (
     <div className="border border-gray-200 rounded-lg p-6">
       <div className="flex items-start justify-between mb-3">
@@ -76,7 +98,15 @@ const ReviewCard: React.FC<ReviewCardProps> = ({
           </div>
         </div>
         
-        <div className="flex items-center space-x-2">
+        <div className="flex items-center space-x-3">
+          {showEditAction && onEdit && (
+            <button
+              onClick={() => onEdit(review)}
+              className="bg-primary-600 hover:bg-primary-700 text-white text-sm font-medium rounded-md px-3 py-1 transition-colors"
+            >
+              Edit
+            </button>
+          )}
           {showStatusBadge && review.status && getStatusBadge(review.status)}
         </div>
       </div>
@@ -131,7 +161,7 @@ const ReviewCard: React.FC<ReviewCardProps> = ({
         </div>
       )}
 
-      {showModerationActions && (
+      {showModerationActions && review.status === 'pending' && (
         <div className="flex space-x-3 mt-4 pt-4 border-t">
           <button
             onClick={() => handleModerationAction('approved')}
@@ -145,6 +175,101 @@ const ReviewCard: React.FC<ReviewCardProps> = ({
           >
             Reject
           </button>
+        </div>
+      )}
+
+      {showModerationActions && review.status !== 'pending' && review.status !== 'conflict' && (
+        <div className="bg-gray-50 border border-gray-200 rounded-md p-3 mt-4">
+          <p className="text-sm text-gray-600 text-center">
+            This review has already been {review.status}. No further action needed.
+          </p>
+        </div>
+      )}
+
+      {showModerationActions && review.status === 'conflict' && (
+        <div className="bg-purple-50 border border-purple-200 rounded-md p-3 mt-4">
+          <p className="text-sm text-purple-700 text-center font-medium">
+            This review is in conflict and requires admin resolution.
+          </p>
+          <p className="text-xs text-purple-600 text-center mt-1">
+            Please use the <a href="/user-management" className="underline font-medium">Conflict Resolution tab</a> to make a final decision.
+          </p>
+        </div>
+      )}
+
+      {/* Debug: Always show this to check if admin override should be visible */}
+      <div className="mt-4 pt-4 border-t border-gray-200">
+        <div className="bg-yellow-50 border border-yellow-200 rounded-md p-3 mb-3">
+          <p className="text-sm text-yellow-700 font-medium">
+            DEBUG: Admin Override Check
+          </p>
+          <p className="text-xs text-yellow-600">
+            showAdminOverride: {String(showAdminOverride)} |
+            onAdminOverride: {String(!!onAdminOverride)} |
+            shouldShow: {String(showAdminOverride && !!onAdminOverride)}
+          </p>
+          <p className="text-xs text-yellow-600 mt-1">
+            Props received: showAdminOverride={String(showAdminOverride)},
+            onAdminOverride={onAdminOverride ? 'function' : 'undefined'}
+          </p>
+          {!showAdminOverride && (
+            <p className="text-xs text-red-600 mt-1">
+              ❌ showAdminOverride is false - user may not be superuser
+            </p>
+          )}
+          {!onAdminOverride && (
+            <p className="text-xs text-red-600 mt-1">
+              ❌ onAdminOverride is missing - handler function not passed
+            </p>
+          )}
+          {showAdminOverride && onAdminOverride && (
+            <p className="text-xs text-green-600 mt-1">
+              ✅ Both conditions met - admin override should be visible below
+            </p>
+          )}
+        </div>
+      </div>
+
+      {showAdminOverride && onAdminOverride && (
+        <div className="mt-4 pt-4 border-t border-gray-200">
+          <div className="bg-blue-50 border border-blue-200 rounded-md p-3 mb-3">
+            <p className="text-sm text-blue-700 font-medium mb-2">Admin Override</p>
+            <p className="text-xs text-blue-600 mb-3">
+              As an admin, you can override any review status, bypassing the supervisor workflow.
+            </p>
+            <div className="flex flex-wrap gap-2">
+              <button
+                onClick={() => {
+                  console.log('Admin override approved clicked for review:', review.id);
+                  onAdminOverride(review.id, 'approved');
+                }}
+                className="bg-green-600 hover:bg-green-700 text-white px-3 py-1 rounded text-xs font-medium transition-colors"
+              >
+                Override → Approved
+              </button>
+              <button
+                onClick={() => {
+                  console.log('Admin override rejected clicked for review:', review.id);
+                  const reason = prompt('Please provide a rejection reason:');
+                  if (reason !== null) {
+                    onAdminOverride(review.id, 'rejected', reason);
+                  }
+                }}
+                className="bg-red-600 hover:bg-red-700 text-white px-3 py-1 rounded text-xs font-medium transition-colors"
+              >
+                Override → Rejected
+              </button>
+              <button
+                onClick={() => {
+                  console.log('Admin override pending clicked for review:', review.id);
+                  onAdminOverride(review.id, 'pending');
+                }}
+                className="bg-yellow-600 hover:bg-yellow-700 text-white px-3 py-1 rounded text-xs font-medium transition-colors"
+              >
+                Override → Pending
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

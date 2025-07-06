@@ -47,6 +47,7 @@ def api_home(request):
             'authentication': {
                 'register': '/api/auth/register/',
                 'login': '/api/auth/login/',
+                'logout': '/api/auth/logout/',
                 'token_refresh': '/api/auth/token/refresh/',
                 'token_verify': '/api/auth/token/verify/',
             },

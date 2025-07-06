@@ -99,15 +99,6 @@ function App() {
               </ProtectedRoute>
             } />
 
-            {/* Legacy Admin Routes */}
-            <Route path="/admin/users" element={
-              <ProtectedRoute>
-                <Layout>
-                  <UserManagementPage />
-                </Layout>
-              </ProtectedRoute>
-            } />
-
             {/* Catch all route */}
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>

@@ -66,7 +66,8 @@ def review_list_user(request):
 def review_detail(request, review_id):
     """
     Get, update, or delete a specific review.
-    Users can only modify their own pending reviews.
+    Users can edit their own reviews (editing approved/rejected reviews resets them to pending).
+    Users can only delete their own pending reviews.
     """
     try:
         review = Review.objects.get(id=review_id)
@@ -86,7 +87,8 @@ def review_detail(request, review_id):
         return Response(serializer.data)
     
     elif request.method == 'PUT':
-        # Only allow updates by the review author and only for pending reviews
+        # Only allow updates by the review author
+        # Editing approved/rejected reviews will reset them to pending status
         if review.user != request.user:
             return Response({
                 'error': 'You can only edit your own reviews'
@@ -135,11 +137,13 @@ def pending_reviews(request):
     page = paginator.paginate_queryset(pending_reviews, request)
 
     if page is not None:
-        serializer = PendingReviewSerializer(page, many=True)
+        serializer = PendingReviewSerializer(
+            page, many=True, context={'request': request})
         return paginator.get_paginated_response(serializer.data)
 
     # Fallback for when pagination is not applied
-    serializer = PendingReviewSerializer(pending_reviews, many=True)
+    serializer = PendingReviewSerializer(
+        pending_reviews, many=True, context={'request': request})
     return Response({
         'pending_reviews': serializer.data,
         'count': len(serializer.data)
@@ -168,7 +172,7 @@ def review_moderate(request, review_id):
     
     if review.status != 'pending':
         return Response({
-            'error': 'Review is not pending approval'
+            'error': 'Review is not pending approval. Only pending reviews can be moderated.'
         }, status=status.HTTP_400_BAD_REQUEST)
     
     serializer = ReviewModerationSerializer(data=request.data)
@@ -279,8 +283,8 @@ def reviews_for_moderation(request):
         elif filter_param == 'rejected':
             reviews = Review.objects.filter(status='rejected')
         elif filter_param == 'conflicted':
-            # For now, return empty queryset for conflicted
-            reviews = Review.objects.none()
+            # Get reviews with conflict status requiring admin resolution
+            reviews = Review.objects.filter(status='conflict')
         else:
             reviews = Review.objects.filter(status='pending')
 
@@ -308,6 +312,10 @@ def reviews_for_moderation(request):
                     # Convert datetime to string for JSON serialization
                     created_at_str = review.created_at.isoformat() if review.created_at else None
 
+                    # Get approval summary and supervisor's decision
+                    approval_summary = review.get_approval_summary()
+                    my_decision = review.get_supervisor_decision(request.user)
+
                     review_data = {
                         'id': review.id,
                         'content': review.content,
@@ -315,15 +323,10 @@ def reviews_for_moderation(request):
                         'app_name': app_name,
                         'author': review.user.username,
                         'created_at': created_at_str,
-                        'approval_status': review.status,  # Use the actual status field
-                        'required_approvals': 2,  # Default value
-                        'approval_summary': {
-                            'total_supervisors': 1,
-                            'approved': 1 if review.status == 'approved' else 0,
-                            'rejected': 1 if review.status == 'rejected' else 0,
-                            'pending': 1 if review.status == 'pending' else 0,
-                        },
-                        'my_decision': 'pending'  # Default for now
+                        'approval_status': review.status,
+                        'required_approvals': approval_summary['total_supervisors'] // 2 + 1,
+                        'approval_summary': approval_summary,
+                        'my_decision': my_decision
                     }
                     reviews_data.append(review_data)
                 except Exception as e:
@@ -352,6 +355,22 @@ def reviews_for_moderation(request):
                 # Convert datetime to string for JSON serialization
                 created_at_str = review.created_at.isoformat() if review.created_at else None
 
+                # Get approval summary and supervisor's decision
+                approval_summary = review.get_approval_summary()
+                print(
+                    f"Approval summary for review {review.id}: {approval_summary}")
+                my_decision = review.get_supervisor_decision(request.user)
+
+                # Get detailed supervisor decisions for display
+                supervisor_decisions = []
+                for approval in review.approvals.select_related('supervisor').all():
+                    supervisor_decisions.append({
+                        'supervisor_name': approval.supervisor.username,
+                        'decision': approval.decision,
+                        'comments': approval.comments,
+                        'created_at': approval.created_at.isoformat(),
+                    })
+
                 review_data = {
                     'id': review.id,
                     'content': review.content,
@@ -359,15 +378,12 @@ def reviews_for_moderation(request):
                     'app_name': app_name,
                     'author': review.user.username,
                     'created_at': created_at_str,
-                    'approval_status': review.status,  # Use the actual status field
-                    'required_approvals': 2,  # Default value
-                    'approval_summary': {
-                        'total_supervisors': 1,
-                        'approved': 1 if review.status == 'approved' else 0,
-                        'rejected': 1 if review.status == 'rejected' else 0,
-                        'pending': 1 if review.status == 'pending' else 0,
-                    },
-                    'my_decision': 'pending'  # Default for now
+                    'approval_status': review.status,
+                    # Majority rule
+                    'required_approvals': approval_summary['total_supervisors'] // 2 + 1,
+                    'approval_summary': approval_summary,
+                    'my_decision': my_decision,
+                    'supervisor_decisions': supervisor_decisions
                 }
                 reviews_data.append(review_data)
             except Exception as e:
@@ -415,29 +431,42 @@ def supervisor_review_decision(request, review_id):
             'error': 'Decision must be either "approved" or "rejected"'
         }, status=status.HTTP_400_BAD_REQUEST)
 
-    # For now, just update the review status directly
-    # In a full implementation, you'd create ReviewApproval records
-    if decision == 'approved':
-        review.status = 'approved'
-        review.reviewed_by = request.user
-        review.reviewed_at = timezone.now()
-    else:
-        review.status = 'rejected'
-        review.reviewed_by = request.user
-        review.reviewed_at = timezone.now()
-        review.rejection_reason = comments
+    # Prevent modifying already approved or rejected reviews
+    if review.status != 'pending':
+        return Response({
+            'error': 'Review is not pending approval. Only pending reviews can be moderated.'
+        }, status=status.HTTP_400_BAD_REQUEST)
 
-    review.save()
+    # Import ReviewApproval model
+    from .models import ReviewApproval
+
+    # Create or update the supervisor's decision
+    approval, created = ReviewApproval.objects.update_or_create(
+        review=review,
+        supervisor=request.user,
+        defaults={
+            'decision': decision,
+            'comments': comments
+        }
+    )
+
+    # Check if the review should be finalized
+    final_status = review.check_and_finalize_status()
+
+    # Get updated approval summary
+    approval_summary = review.get_approval_summary()
+
+    action_word = "updated" if not created else "recorded"
+    message = f'Your {decision} decision has been {action_word}.'
+
+    if final_status != 'pending':
+        message += f' The review has been {final_status}.'
 
     return Response({
-        'message': f'Review {decision} successfully',
+        'message': message,
         'review_status': review.status,
-        'approval_summary': {
-            'total_supervisors': 1,
-            'approved': 1 if decision == 'approved' else 0,
-            'rejected': 1 if decision == 'rejected' else 0,
-            'pending': 0,
-        }
+        'approval_summary': approval_summary,
+        'my_decision': decision
     })
 
 
@@ -452,9 +481,35 @@ def conflicted_reviews(request):
             'error': 'Only superusers can view conflicted reviews'
         }, status=status.HTTP_403_FORBIDDEN)
 
-    # For now, return empty list since we don't have the full conflict system implemented
-    # In a full implementation, you'd query for reviews with 'conflicted' or 'escalated' status
+    # Get reviews with conflict status
+    conflict_reviews = Review.objects.filter(status='conflict').select_related(
+        'app', 'user', 'reviewed_by'
+    ).prefetch_related('approvals__supervisor')
+
     conflicted_reviews = []
+    for review in conflict_reviews:
+        # Get all supervisor decisions
+        decisions = []
+        for approval in review.approvals.all().order_by('-created_at'):
+            decisions.append({
+                'supervisor': approval.supervisor.username,
+                'decision': approval.decision,
+                'comments': approval.comments or '',
+                'timestamp': approval.created_at.isoformat()
+            })
+
+        conflicted_reviews.append({
+            'id': review.id,
+            'title': review.title,
+            'content': review.content,
+            'rating': review.rating,
+            'app_name': review.app.name,
+            'author': review.user.username,
+            'created_at': review.created_at.isoformat(),
+            'status': 'conflicted',  # Frontend expects 'conflicted'
+            'summary': review.get_approval_summary(),
+            'decisions': decisions
+        })
 
     return Response({
         'conflicted_reviews': conflicted_reviews,
@@ -480,6 +535,12 @@ def resolve_conflict(request, review_id):
             'error': 'Review not found'
         }, status=status.HTTP_404_NOT_FOUND)
 
+    # Only allow resolution of conflict status reviews
+    if review.status != 'conflict':
+        return Response({
+            'error': 'Review is not in conflict status'
+        }, status=status.HTTP_400_BAD_REQUEST)
+
     final_decision = request.data.get(
         'final_decision')  # 'approved' or 'rejected'
     resolution_notes = request.data.get('resolution_notes', '')
@@ -489,15 +550,150 @@ def resolve_conflict(request, review_id):
             'error': 'Final decision must be either "approved" or "rejected"'
         }, status=status.HTTP_400_BAD_REQUEST)
 
+    # Update review status
     review.status = final_decision
     review.reviewed_by = request.user
     review.reviewed_at = timezone.now()
-    if hasattr(review, 'resolution_notes'):
-        review.resolution_notes = resolution_notes
+
+    # Store resolution notes in rejection_reason field for now
+    # (could be extended with a separate resolution_notes field)
+    if resolution_notes:
+        if final_decision == 'rejected':
+            review.rejection_reason = resolution_notes
+        else:
+            # For approved reviews, you might want to add a resolution_notes field
+            # For now, we'll just log it
+            pass
+
     review.save()
+
+    # Update app rating if approved
+    if final_decision == 'approved' and hasattr(review, 'app'):
+        review.app.update_average_rating()
 
     return Response({
         'message': f'Conflict resolved: Review {final_decision}',
         'review_id': review.id,
         'final_decision': final_decision
+    })
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def review_supervisor_decisions(request, review_id):
+    """
+    Get detailed supervisor decisions for a specific review
+    """
+    if not request.user.groups.filter(name='supervisors').exists():
+        return Response({
+            'error': 'Only supervisors can view detailed decisions'
+        }, status=status.HTTP_403_FORBIDDEN)
+
+    try:
+        review = Review.objects.get(id=review_id)
+    except Review.DoesNotExist:
+        return Response({
+            'error': 'Review not found'
+        }, status=status.HTTP_404_NOT_FOUND)
+
+    # Get all supervisor decisions for this review
+    decisions = review.approvals.select_related('supervisor').all()
+
+    decision_data = []
+    for decision in decisions:
+        decision_data.append({
+            'supervisor_id': decision.supervisor.id,
+            'supervisor_name': decision.supervisor.username,
+            'supervisor_email': decision.supervisor.email,
+            'decision': decision.decision,
+            'comments': decision.comments,
+            'created_at': decision.created_at.isoformat(),
+        })
+
+    # Get overall summary
+    approval_summary = review.get_approval_summary()
+
+    return Response({
+        'review_id': review.id,
+        'review_status': review.status,
+        'approval_summary': approval_summary,
+        'required_approvals': approval_summary['total_supervisors'] // 2 + 1,
+        'decisions': decision_data,
+        'my_decision': review.get_supervisor_decision(request.user)
+    })
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def admin_override_review(request, review_id):
+    """
+    Admin direct override - bypass supervisor voting entirely
+    Allows admin to set any review to approved/rejected/pending regardless of current status
+    """
+    if not request.user.is_superuser:
+        return Response({
+            'error': 'Only superusers can perform admin overrides'
+        }, status=status.HTTP_403_FORBIDDEN)
+
+    try:
+        review = Review.objects.get(id=review_id)
+    except Review.DoesNotExist:
+        return Response({
+            'error': 'Review not found'
+        }, status=status.HTTP_404_NOT_FOUND)
+
+    # 'approved', 'rejected', or 'pending'
+    new_status = request.data.get('status')
+    rejection_reason = request.data.get('rejection_reason', '')
+
+    if new_status not in ['approved', 'rejected', 'pending']:
+        return Response({
+            'error': 'Status must be "approved", "rejected", or "pending"'
+        }, status=status.HTTP_400_BAD_REQUEST)
+
+    # Store the original status for logging
+    original_status = review.status
+
+    # If setting back to pending, clear supervisor approvals and reviewed fields
+    if new_status == 'pending':
+        review.clear_supervisor_approvals()
+        review.reviewed_by = None
+        review.reviewed_at = None
+        review.rejection_reason = ''
+    else:
+        # Update review status directly for approved/rejected
+        review.reviewed_by = request.user
+        review.reviewed_at = timezone.now()
+
+        # Handle rejection reason
+        if new_status == 'rejected' and rejection_reason:
+            review.rejection_reason = f"Admin Override: {rejection_reason}"
+        elif new_status == 'rejected' and not rejection_reason:
+            review.rejection_reason = "Admin Override: No reason provided"
+
+    # Update status
+    review.status = new_status
+
+    # Add override metadata
+    if not hasattr(review, 'metadata') or not review.metadata:
+        review.metadata = {}
+    review.metadata['admin_override'] = True
+    review.metadata['original_status'] = original_status
+    review.metadata['override_timestamp'] = timezone.now().isoformat()
+
+    review.save()
+
+    # Update app rating if approved
+    if new_status == 'approved' and hasattr(review, 'app'):
+        review.app.update_average_rating()
+
+    # Return the updated review data
+    serializer = ReviewDetailSerializer(review)
+
+    return Response({
+        'message': f'Admin override successful: Review set to {new_status}',
+        'review_id': review.id,
+        'status': new_status,
+        'original_status': original_status,
+        **serializer.data  # Include full review data
     })
