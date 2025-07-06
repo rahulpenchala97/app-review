@@ -308,13 +308,11 @@ def app_search_advanced(request):
     # Use the advanced search method from the model
     search_results, search_type = App.advanced_search(
         query,
+        category=category,
         min_rank=min_rank,
-        min_similarity=min_similarity
+        min_similarity=min_similarity,
+        use_fuzzy=use_fuzzy
     )
-
-    # Apply category filter if provided
-    if category and search_results.exists():
-        search_results = search_results.filter(category__iexact=category)
 
     # Apply pagination
     paginator = LargeResultsSetPagination()

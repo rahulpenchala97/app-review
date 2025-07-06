@@ -182,14 +182,15 @@ const SearchPage: React.FC = () => {
               <span className="text-blue-700 font-medium">
                 {useAdvancedSearch ? 'Advanced Search' : 'Basic Search'}
               </span>
-              {searchMetadata.searchType && searchMetadata.searchType !== 'basic' && (
+              {searchMetadata.searchType && !['basic', 'no_query'].includes(searchMetadata.searchType) && (
                 <>
                   <span className="text-blue-500">•</span>
                   <span className="text-blue-600">
                     {searchMetadata.searchType === 'fulltext' ? 'Smart matching' :
                       searchMetadata.searchType === 'fuzzy' ? 'Typo-tolerant' :
                         searchMetadata.searchType === 'category_filter' ? 'Category filtered' :
-                          'Standard search'}
+                          searchMetadata.searchType === 'fallback' ? 'Standard search' :
+                            'Search active'}
                   </span>
                 </>
               )}

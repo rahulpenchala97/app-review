@@ -44,7 +44,7 @@ export interface SearchResponse {
   previous?: string;
   query: string;
   category?: string;
-  search_type: 'fulltext' | 'fuzzy' | 'category_filter' | 'fallback' | 'none' | 'no_results';
+  search_type: 'fulltext' | 'fuzzy' | 'category_filter' | 'fallback' | 'no_query' | 'basic';
   search_engine?: string;
   parameters?: {
     min_rank: number;
