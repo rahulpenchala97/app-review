@@ -252,3 +252,100 @@ def app_developers(request):
     return Response({
         'developers': list(developers)
     })
+
+
+@api_view(['GET'])
+@permission_classes([AllowAny])
+def app_search_advanced(request):
+    """
+    Advanced app search using PostgreSQL full-text search.
+    Supports both full-text search and fuzzy matching with better performance.
+    """
+    query = request.GET.get('q', '').strip()
+    category = request.GET.get('category', '').strip()
+    min_rank = float(request.GET.get('min_rank', 0.1))
+    min_similarity = float(request.GET.get('min_similarity', 0.3))
+    use_fuzzy = request.GET.get('fuzzy', 'true').lower() == 'true'
+
+    if not query and not category:
+        return Response({
+            'results': [],
+            'message': 'Please provide a search query or category'
+        }, status=status.HTTP_400_BAD_REQUEST)
+
+    # Handle category-only search
+    if not query and category:
+        apps = App.objects.filter(
+            category__iexact=category,
+            is_active=True
+        ).order_by('-average_rating', 'name')
+
+        # Apply pagination
+        paginator = LargeResultsSetPagination()
+        page = paginator.paginate_queryset(apps, request)
+
+        if page is not None:
+            serializer = AppListSerializer(page, many=True)
+            response_data = paginator.get_paginated_response(serializer.data)
+            response_data.data.update({
+                'query': query,
+                'category': category,
+                'search_type': 'category_filter',
+                'search_engine': 'postgresql_advanced'
+            })
+            return response_data
+
+        serializer = AppListSerializer(apps[:50], many=True)
+        return Response({
+            'results': serializer.data,
+            'query': query,
+            'category': category,
+            'count': len(serializer.data),
+            'search_type': 'category_filter',
+            'search_engine': 'postgresql_advanced'
+        })
+
+    # Use the advanced search method from the model
+    search_results, search_type = App.advanced_search(
+        query,
+        category=category,
+        min_rank=min_rank,
+        min_similarity=min_similarity,
+        use_fuzzy=use_fuzzy
+    )
+
+    # Apply pagination
+    paginator = LargeResultsSetPagination()
+    page = paginator.paginate_queryset(search_results, request)
+
+    if page is not None:
+        serializer = AppListSerializer(page, many=True)
+        response_data = paginator.get_paginated_response(serializer.data)
+        response_data.data.update({
+            'query': query,
+            'category': category,
+            'search_type': search_type,
+            'search_engine': 'postgresql_advanced',
+            'parameters': {
+                'min_rank': min_rank,
+                'min_similarity': min_similarity,
+                'fuzzy_enabled': use_fuzzy
+            }
+        })
+        return response_data
+
+    # Fallback response
+    serializer = AppListSerializer(search_results, many=True)
+    return Response({
+        'results': serializer.data,
+        'query': query,
+        'category': category,
+        'count': search_results.count() if search_results else 0,
+        'search_type': search_type,
+        'search_engine': 'postgresql_advanced',
+        'parameters': {
+            'min_rank': min_rank,
+            'min_similarity': min_similarity,
+            'fuzzy_enabled': use_fuzzy
+        }
+    })

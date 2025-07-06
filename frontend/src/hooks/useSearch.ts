@@ -1,17 +1,25 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import appService, { App, AppSuggestion } from '../services/apps';
+import appService, { App, AppSuggestion, SearchResponse } from '../services/apps';
 
 interface UseSearchOptions {
   minQueryLength?: number;
   debounceMs?: number;
   enableSuggestions?: boolean;
+  useAdvancedSearch?: boolean;
+  minRank?: number;
+  minSimilarity?: number;
+  fuzzySearch?: boolean;
 }
 
 export const useSearch = (options: UseSearchOptions = {}) => {
   const {
     minQueryLength = 2,
     debounceMs = 300,
-    enableSuggestions = true
+    enableSuggestions = true,
+    useAdvancedSearch = true,
+    minRank = 0.1,
+    minSimilarity = 0.3,
+    fuzzySearch = true
   } = options;
 
   const [query, setQuery] = useState('');
@@ -20,34 +28,84 @@ export const useSearch = (options: UseSearchOptions = {}) => {
   const [suggestions, setSuggestions] = useState<AppSuggestion[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [isLoadingSuggestions, setIsLoadingSuggestions] = useState(false);
+  const [searchMetadata, setSearchMetadata] = useState<{
+    searchType?: string;
+    searchEngine?: string;
+    count?: number;
+  }>({});
+
+  // Pagination state
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(20);
+  const [totalCount, setTotalCount] = useState(0);
+  const [totalPages, setTotalPages] = useState(0);
 
   const searchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const suggestionsTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  // Simple search function
-  const performSearch = useCallback(async (searchQuery: string, searchCategory: string = '') => {
+  // Advanced search function using PostgreSQL full-text search
+  const performSearch = useCallback(async (searchQuery: string, searchCategory: string = '', page: number = 1) => {
     setIsLoading(true);
     
     try {
-      let apps: App[] = [];
-
-      if (searchQuery.trim() || searchCategory.trim()) {
-        console.log('Calling searchApps with:', { searchQuery, searchCategory });
-        apps = await appService.searchApps(
-          searchQuery.trim(), 
-          searchCategory.trim() || undefined
+      if (useAdvancedSearch && (searchQuery.trim() || searchCategory.trim())) {
+        const response: SearchResponse = await appService.searchAppsAdvanced(
+          searchQuery.trim(),
+          {
+            category: searchCategory.trim() || undefined,
+            minRank,
+            minSimilarity,
+            fuzzy: fuzzySearch,
+            page,
+            pageSize
+          }
         );
-        console.log('Search results:', apps.length, 'apps');
-      }
 
-      setResults(apps);
+        setResults(response.results);
+        setSearchMetadata({
+          searchType: response.search_type,
+          searchEngine: response.search_engine,
+          count: response.count
+        });
+        setTotalCount(response.total_count || response.count);
+        setTotalPages(response.total_pages || Math.ceil((response.total_count || response.count) / pageSize));
+        setCurrentPage(response.current_page || page);
+      } else if (!useAdvancedSearch && (searchQuery.trim() || searchCategory.trim())) {
+        // Fallback to basic search
+        const apps = await appService.searchApps(
+          searchQuery.trim(), 
+          searchCategory.trim() || undefined,
+          page,
+          pageSize
+        );
+
+        setResults(apps);
+        setSearchMetadata({
+          searchType: 'basic',
+          searchEngine: 'django_basic',
+          count: apps.length
+        });
+        // For basic search, we don't have proper pagination info, so estimate
+        setTotalCount(apps.length);
+        setTotalPages(1);
+        setCurrentPage(1);
+      } else {
+        setResults([]);
+        setSearchMetadata({});
+        setTotalCount(0);
+        setTotalPages(0);
+        setCurrentPage(1);
+      }
     } catch (error) {
       console.error('Search failed:', error);
       setResults([]);
+      setSearchMetadata({});
+      setTotalCount(0);
+      setTotalPages(0);
+      setCurrentPage(1);
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, [useAdvancedSearch, minRank, minSimilarity, fuzzySearch, pageSize]);
 
   // Simple suggestions fetch
   const fetchSuggestions = useCallback(async (searchQuery: string) => {
@@ -76,7 +134,8 @@ export const useSearch = (options: UseSearchOptions = {}) => {
     }
 
     searchTimeoutRef.current = setTimeout(() => {
-      performSearch(searchQuery, searchCategory);
+      setCurrentPage(1); // Reset to first page for new searches
+      performSearch(searchQuery, searchCategory, 1);
     }, debounceMs);
   }, [performSearch, category, debounceMs]);
 
@@ -110,11 +169,26 @@ export const useSearch = (options: UseSearchOptions = {}) => {
     performSearch(query, category);
   }, [performSearch, query, category]);
 
+  // Pagination methods
+  const goToPage = useCallback((page: number) => {
+    setCurrentPage(page);
+    performSearch(query, category, page);
+  }, [performSearch, query, category]);
+
+  const changePageSize = useCallback((newPageSize: number) => {
+    setPageSize(newPageSize);
+    setCurrentPage(1); // Reset to first page when changing page size
+    performSearch(query, category, 1);
+  }, [performSearch, query, category]);
+
   // Clear all
   const clear = useCallback(() => {
     setQuery('');
     setCategory('');
     setSuggestions([]);
+    setCurrentPage(1);
+    setTotalCount(0);
+    setTotalPages(0);
     performSearch('', '');
   }, [performSearch]);
   // Initialize search with specific values
@@ -126,10 +200,13 @@ export const useSearch = (options: UseSearchOptions = {}) => {
 
     setQuery(initialQuery);
     setCategory(initialCategory);
+    setCurrentPage(1); // Reset to first page on initialization
+    setTotalCount(0);
+    setTotalPages(0);
 
     // Perform search immediately without debouncing for initialization
     if (initialQuery.trim() || initialCategory.trim()) {
-      performSearch(initialQuery, initialCategory);
+      performSearch(initialQuery, initialCategory, 1);
     } else {
       setResults([]);
       setIsLoading(false);
@@ -151,10 +228,20 @@ export const useSearch = (options: UseSearchOptions = {}) => {
     suggestions,
     isLoading,
     isLoadingSuggestions,
+    searchMetadata,
+    // Pagination state
+    currentPage,
+    pageSize,
+    totalCount,
+    totalPages,
+    // Methods
     updateQuery,
     updateCategory,
     search,
     clear,
-    initialize
+    initialize,
+    // Pagination methods
+    goToPage,
+    changePageSize
   };
 };
