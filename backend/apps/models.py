@@ -1,6 +1,10 @@
 from django.db import models
 from django.core.validators import URLValidator
 from django.utils import timezone
+from django.contrib.postgres.search import SearchVector, SearchQuery, SearchRank, TrigramSimilarity
+from django.contrib.postgres.indexes import GinIndex
+from django.db.models import Q, F
+from django.db.models.functions import Greatest
 
 
 class App(models.Model):
@@ -46,6 +50,17 @@ class App(models.Model):
             models.Index(fields=['developer']),
             models.Index(fields=['average_rating']),
             models.Index(fields=['is_active']),
+            # PostgreSQL full-text search indexes
+            GinIndex(
+                fields=['name'],
+                name='apps_name_gin_idx',
+                opclasses=['gin_trgm_ops']
+            ),
+            GinIndex(
+                fields=['description'],
+                name='apps_description_gin_idx',
+                opclasses=['gin_trgm_ops']
+            ),
         ]
 
     def __str__(self):
@@ -80,3 +95,107 @@ class App(models.Model):
             name__icontains=query,
             is_active=True
         ).order_by('name')[:limit]
+
+    @classmethod
+    def search_fulltext(cls, query, min_rank=0.1):
+        """
+        Advanced full-text search with ranking.
+        Searches across name, description, developer, and category fields.
+        Returns results ordered by relevance.
+        """
+        if not query or not query.strip():
+            return cls.objects.none()
+
+        query = query.strip()
+
+        # Create search vectors with weights
+        search_vector = (
+            SearchVector('name', weight='A', config='english') +
+            SearchVector('developer', weight='B', config='english') +
+            SearchVector('category', weight='C', config='english') +
+            SearchVector('description', weight='D', config='english')
+        )
+
+        search_query = SearchQuery(query, config='english')
+
+        return cls.objects.annotate(
+            search=search_vector,
+            rank=SearchRank(search_vector, search_query)
+        ).filter(
+            search=search_query,
+            is_active=True,
+            rank__gte=min_rank
+        ).order_by('-rank', '-average_rating')
+
+    @classmethod
+    def search_fuzzy(cls, query, min_similarity=0.3):
+        """
+        Fuzzy search using trigram similarity.
+        Useful for handling typos and partial matches.
+        """
+        if not query or not query.strip():
+            return cls.objects.none()
+
+        query = query.strip()
+
+        return cls.objects.annotate(
+            name_similarity=TrigramSimilarity('name', query),
+            developer_similarity=TrigramSimilarity('developer', query),
+            category_similarity=TrigramSimilarity('category', query),
+            description_similarity=TrigramSimilarity('description', query),
+        ).annotate(
+            max_similarity=Greatest(
+                'name_similarity',
+                'developer_similarity',
+                'category_similarity',
+                'description_similarity'
+            )
+        ).filter(
+            max_similarity__gt=min_similarity,
+            is_active=True
+        ).order_by('-max_similarity', '-average_rating')
+
+    @classmethod
+    def advanced_search(cls, query, category=None, min_rank=0.1, min_similarity=0.3, use_fuzzy=True):
+        """
+        Comprehensive search that combines full-text search with fuzzy fallback.
+        """
+        if not query or not query.strip():
+            if category:
+                # Category-only search
+                return cls.objects.filter(
+                    category__iexact=category,
+                    is_active=True
+                ).order_by('-average_rating', 'name'), 'category_filter'
+            return cls.objects.none(), 'no_query'
+
+        # Start with full-text search
+        base_queryset = cls.search_fulltext(query, min_rank)
+
+        # Apply category filter if provided
+        if category:
+            base_queryset = base_queryset.filter(category__iexact=category)
+
+        if base_queryset.exists():
+            return base_queryset, 'fulltext'
+
+        # Fallback to fuzzy search if no full-text results
+        if use_fuzzy:
+            fuzzy_queryset = cls.search_fuzzy(query, min_similarity)
+            if category:
+                fuzzy_queryset = fuzzy_queryset.filter(
+                    category__iexact=category)
+
+            if fuzzy_queryset.exists():
+                return fuzzy_queryset, 'fuzzy'
+
+        # Final fallback to basic icontains search
+        fallback_filter = models.Q(name__icontains=query) | models.Q(
+            description__icontains=query)
+        fallback_queryset = cls.objects.filter(fallback_filter, is_active=True)
+
+        if category:
+            fallback_queryset = fallback_queryset.filter(
+                category__iexact=category)
+
+        return fallback_queryset.order_by('-average_rating', 'name'), 'fallback'
