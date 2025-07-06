@@ -1,0 +1,46 @@
+services:
+  # Backend Service (Django)
+  - type: web
+    name: app-review-backend
+    env: python
+    region: oregon
+    plan: free
+    buildCommand: cd backend && pip install -r requirements.txt && python manage.py collectstatic --noinput && python manage.py migrate
+    startCommand: cd backend && gunicorn app_review_project.wsgi:application --bind 0.0.0.0:$PORT
+    envVars:
+      - key: DJANGO_SETTINGS_MODULE
+        value: app_review_project.settings
+      - key: DEBUG
+        value: "False"
+      - key: ALLOWED_HOSTS
+        value: "app-review-backend.onrender.com,localhost,127.0.0.1"
+      - key: SECRET_KEY
+        generateValue: true
+      - key: DATABASE_URL
+        fromDatabase:
+          name: app-review-db
+          property: connectionString
+    healthCheckPath: /api/health
+
+  # Frontend Service (React)
+  - type: web
+    name: app-review-frontend
+    env: static
+    region: oregon
+    plan: free
+    buildCommand: cd frontend && npm install && npm run build
+    staticPublishPath: ./frontend/build
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
+    envVars:
+      - key: REACT_APP_API_URL
+        value: https://app-review-backend.onrender.com
+
+# Database service
+databases:
+  - name: app-review-db
+    databaseName: app_review_db
+    user: app_review_user
+    plan: free
