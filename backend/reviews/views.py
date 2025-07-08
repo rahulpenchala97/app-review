@@ -1,5 +1,8 @@
 from django.http import JsonResponse
 from django.utils import timezone
+from django.db import transaction
+from django.db.models import F
+from django.core.exceptions import PermissionDenied
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
@@ -12,6 +15,53 @@ from .serializers import (
     ReviewListSerializer, ReviewDetailSerializer, ReviewCreateSerializer,
     ReviewModerationSerializer, PendingReviewSerializer, ReviewUpdateSerializer
 )
+import logging
+
+logger = logging.getLogger(__name__)
+
+
+def validate_supervisor_permissions(user):
+    """
+    Validate supervisor permissions with real-time check.
+    Raises PermissionDenied if user doesn't have supervisor privileges.
+    """
+    if not user.is_active:
+        logger.warning(f"Inactive user {user.username} attempted supervisor action")
+        raise PermissionDenied("User account is inactive")
+    
+    if not user.groups.filter(name='supervisors').exists():
+        logger.warning(f"User {user.username} attempted supervisor action without privileges")
+        raise PermissionDenied("Supervisor privileges required")
+    
+    return True
+
+
+def validate_superuser_permissions(user):
+    """
+    Validate superuser permissions with real-time check.
+    Raises PermissionDenied if user doesn't have superuser privileges.
+    """
+    if not user.is_active:
+        logger.warning(f"Inactive user {user.username} attempted superuser action")
+        raise PermissionDenied("User account is inactive")
+    
+    # Refresh user from database to get latest permissions
+    user.refresh_from_db()
+    if not user.is_superuser:
+        logger.warning(f"User {user.username} attempted superuser action without privileges")
+        raise PermissionDenied("Superuser privileges required")
+    
+    return True
+
+
+def get_review_with_lock(review_id):
+    """
+    Get review with database lock to prevent race conditions.
+    """
+    try:
+        return Review.objects.select_for_update().get(id=review_id)
+    except Review.DoesNotExist:
+        return None
 
 
 @api_view(['POST'])
@@ -124,10 +174,12 @@ def pending_reviews(request):
     Get all pending reviews for supervisor approval with pagination.
     Only accessible by users in the 'supervisors' group.
     """
-    # Check if user is a supervisor
-    if not request.user.groups.filter(name='supervisors').exists():
+    try:
+        # Validate supervisor permissions
+        validate_supervisor_permissions(request.user)
+    except PermissionDenied as e:
         return Response({
-            'error': 'Access denied. Supervisor privileges required.'
+            'error': str(e)
         }, status=status.HTTP_403_FORBIDDEN)
     
     pending_reviews = Review.get_pending_reviews()
@@ -157,10 +209,12 @@ def review_moderate(request, review_id):
     Approve or reject a review.
     Only accessible by users in the 'supervisors' group.
     """
-    # Check if user is a supervisor
-    if not request.user.groups.filter(name='supervisors').exists():
+    try:
+        # Validate supervisor permissions
+        validate_supervisor_permissions(request.user)
+    except PermissionDenied as e:
         return Response({
-            'error': 'Access denied. Supervisor privileges required.'
+            'error': str(e)
         }, status=status.HTTP_403_FORBIDDEN)
     
     try:
@@ -234,9 +288,11 @@ def supervisor_stats(request):
     """
     Get moderation statistics for supervisors.
     """
-    if not request.user.groups.filter(name='supervisors').exists():
+    try:
+        validate_supervisor_permissions(request.user)
+    except PermissionDenied as e:
         return Response({
-            'error': 'Access denied. Supervisor privileges required.'
+            'error': str(e)
         }, status=status.HTTP_403_FORBIDDEN)
     
     # Get reviews moderated by this supervisor
@@ -409,19 +465,15 @@ def reviews_for_moderation(request):
 @permission_classes([IsAuthenticated])
 def supervisor_review_decision(request, review_id):
     """
-    Allow supervisor to approve/reject a review
+    Allow supervisor to approve/reject a review with race condition protection
     """
-    if not request.user.groups.filter(name='supervisors').exists():
-        return Response({
-            'error': 'Only supervisors can make review decisions'
-        }, status=status.HTTP_403_FORBIDDEN)
-
     try:
-        review = Review.objects.get(id=review_id)
-    except Review.DoesNotExist:
+        # Validate permissions first
+        validate_supervisor_permissions(request.user)
+    except PermissionDenied as e:
         return Response({
-            'error': 'Review not found'
-        }, status=status.HTTP_404_NOT_FOUND)
+            'error': str(e)
+        }, status=status.HTTP_403_FORBIDDEN)
 
     decision = request.data.get('decision')  # 'approved' or 'rejected'
     comments = request.data.get('comments', '')
@@ -431,43 +483,86 @@ def supervisor_review_decision(request, review_id):
             'error': 'Decision must be either "approved" or "rejected"'
         }, status=status.HTTP_400_BAD_REQUEST)
 
-    # Prevent modifying already approved or rejected reviews
-    if review.status != 'pending':
+    # Use database transaction with row-level locking
+    try:
+        with transaction.atomic():
+            # Get review with lock to prevent race conditions
+            review = get_review_with_lock(review_id)
+            if not review:
+                return Response({
+                    'error': 'Review not found'
+                }, status=status.HTTP_404_NOT_FOUND)
+
+            # Double-check permissions inside transaction
+            validate_supervisor_permissions(request.user)
+
+            # Check if review is still in pending status
+            if review.status != 'pending':
+                logger.warning(
+                    f"Supervisor {request.user.username} attempted to vote on "
+                    f"non-pending review {review_id} (status: {review.status})"
+                )
+                return Response({
+                    'error': f'Review is not pending approval. Current status: {review.status}. '
+                            'Only pending reviews can be moderated.'
+                }, status=status.HTTP_400_BAD_REQUEST)
+
+            # Import ReviewApproval model
+            from .models import ReviewApproval
+
+            # Create or update the supervisor's decision
+            approval, created = ReviewApproval.objects.update_or_create(
+                review=review,
+                supervisor=request.user,
+                defaults={
+                    'decision': decision,
+                    'comments': comments
+                }
+            )
+
+            # Log the decision
+            action = "created" if created else "updated"
+            logger.info(
+                f"Supervisor {request.user.username} {action} decision '{decision}' "
+                f"for review {review_id}"
+            )
+
+            # Check if the review should be finalized
+            final_status = review.check_and_finalize_status()
+
+            # Get updated approval summary
+            approval_summary = review.get_approval_summary()
+
+            action_word = "updated" if not created else "recorded"
+            message = f'Your {decision} decision has been {action_word}.'
+
+            if final_status != 'pending':
+                message += f' The review has been {final_status}.'
+                logger.info(f"Review {review_id} finalized with status: {final_status}")
+
+            return Response({
+                'message': message,
+                'review_status': review.status,
+                'approval_summary': approval_summary,
+                'my_decision': decision
+            })
+
+    except PermissionDenied as e:
+        logger.warning(
+            f"Permission denied for user {request.user.username} "
+            f"during review decision: {str(e)}"
+        )
         return Response({
-            'error': 'Review is not pending approval. Only pending reviews can be moderated.'
-        }, status=status.HTTP_400_BAD_REQUEST)
-
-    # Import ReviewApproval model
-    from .models import ReviewApproval
-
-    # Create or update the supervisor's decision
-    approval, created = ReviewApproval.objects.update_or_create(
-        review=review,
-        supervisor=request.user,
-        defaults={
-            'decision': decision,
-            'comments': comments
-        }
-    )
-
-    # Check if the review should be finalized
-    final_status = review.check_and_finalize_status()
-
-    # Get updated approval summary
-    approval_summary = review.get_approval_summary()
-
-    action_word = "updated" if not created else "recorded"
-    message = f'Your {decision} decision has been {action_word}.'
-
-    if final_status != 'pending':
-        message += f' The review has been {final_status}.'
-
-    return Response({
-        'message': message,
-        'review_status': review.status,
-        'approval_summary': approval_summary,
-        'my_decision': decision
-    })
+            'error': str(e)
+        }, status=status.HTTP_403_FORBIDDEN)
+    except Exception as e:
+        logger.error(
+            f"Error in supervisor_review_decision for review {review_id} "
+            f"by user {request.user.username}: {str(e)}"
+        )
+        return Response({
+            'error': 'An error occurred while processing your decision. Please try again.'
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
 @api_view(['GET'])
@@ -476,9 +571,11 @@ def conflicted_reviews(request):
     """
     Get all reviews with conflicts for resolution
     """
-    if not request.user.is_superuser:
+    try:
+        validate_superuser_permissions(request.user)
+    except PermissionDenied as e:
         return Response({
-            'error': 'Only superusers can view conflicted reviews'
+            'error': str(e)
         }, status=status.HTTP_403_FORBIDDEN)
 
     # Get reviews with conflict status
@@ -521,28 +618,17 @@ def conflicted_reviews(request):
 @permission_classes([IsAuthenticated])
 def resolve_conflict(request, review_id):
     """
-    Superuser resolves conflicts manually
+    Superuser resolves conflicts manually with race condition protection
     """
-    if not request.user.is_superuser:
+    try:
+        # Validate permissions first
+        validate_superuser_permissions(request.user)
+    except PermissionDenied as e:
         return Response({
-            'error': 'Only superusers can resolve conflicts'
+            'error': str(e)
         }, status=status.HTTP_403_FORBIDDEN)
 
-    try:
-        review = Review.objects.get(id=review_id)
-    except Review.DoesNotExist:
-        return Response({
-            'error': 'Review not found'
-        }, status=status.HTTP_404_NOT_FOUND)
-
-    # Only allow resolution of conflict status reviews
-    if review.status != 'conflict':
-        return Response({
-            'error': 'Review is not in conflict status'
-        }, status=status.HTTP_400_BAD_REQUEST)
-
-    final_decision = request.data.get(
-        'final_decision')  # 'approved' or 'rejected'
+    final_decision = request.data.get('final_decision')  # 'approved' or 'rejected'
     resolution_notes = request.data.get('resolution_notes', '')
 
     if final_decision not in ['approved', 'rejected']:
@@ -550,32 +636,92 @@ def resolve_conflict(request, review_id):
             'error': 'Final decision must be either "approved" or "rejected"'
         }, status=status.HTTP_400_BAD_REQUEST)
 
-    # Update review status
-    review.status = final_decision
-    review.reviewed_by = request.user
-    review.reviewed_at = timezone.now()
+    # Use database transaction with row-level locking
+    try:
+        with transaction.atomic():
+            # Get review with lock to prevent race conditions
+            review = get_review_with_lock(review_id)
+            if not review:
+                return Response({
+                    'error': 'Review not found'
+                }, status=status.HTTP_404_NOT_FOUND)
 
-    # Store resolution notes in rejection_reason field for now
-    # (could be extended with a separate resolution_notes field)
-    if resolution_notes:
-        if final_decision == 'rejected':
-            review.rejection_reason = resolution_notes
-        else:
-            # For approved reviews, you might want to add a resolution_notes field
-            # For now, we'll just log it
-            pass
+            # Double-check permissions inside transaction
+            validate_superuser_permissions(request.user)
 
-    review.save()
+            # Only allow resolution of conflict status reviews
+            if review.status != 'conflict':
+                logger.warning(
+                    f"Superuser {request.user.username} attempted to resolve "
+                    f"non-conflict review {review_id} (status: {review.status})"
+                )
+                return Response({
+                    'error': f'Review is not in conflict status. Current status: {review.status}'
+                }, status=status.HTTP_400_BAD_REQUEST)
 
-    # Update app rating if approved
-    if final_decision == 'approved' and hasattr(review, 'app'):
-        review.app.update_average_rating()
+            # Log the resolution attempt
+            logger.info(
+                f"Superuser {request.user.username} resolving conflict for review {review_id} "
+                f"with decision: {final_decision}"
+            )
 
-    return Response({
-        'message': f'Conflict resolved: Review {final_decision}',
-        'review_id': review.id,
-        'final_decision': final_decision
-    })
+            # Update review status
+            review.status = final_decision
+            review.reviewed_by = request.user
+            review.reviewed_at = timezone.now()
+
+            # Store resolution notes in rejection_reason field for now
+            # (could be extended with a separate resolution_notes field)
+            if resolution_notes:
+                if final_decision == 'rejected':
+                    review.rejection_reason = f"Conflict Resolution: {resolution_notes}"
+                else:
+                    # For approved reviews, you might want to add a resolution_notes field
+                    # For now, we'll store it in metadata
+                    if not hasattr(review, 'metadata') or not review.metadata:
+                        review.metadata = {}
+                    review.metadata['resolution_notes'] = resolution_notes
+
+            # Add conflict resolution metadata
+            if not hasattr(review, 'metadata') or not review.metadata:
+                review.metadata = {}
+            review.metadata['conflict_resolved'] = True
+            review.metadata['resolved_by'] = request.user.username
+            review.metadata['resolution_timestamp'] = timezone.now().isoformat()
+
+            review.save()
+
+            # Update app rating if approved
+            if final_decision == 'approved' and hasattr(review, 'app'):
+                review.app.update_average_rating()
+
+            logger.info(
+                f"Conflict resolved for review {review_id}: {final_decision} "
+                f"by {request.user.username}"
+            )
+
+            return Response({
+                'message': f'Conflict resolved: Review {final_decision}',
+                'review_id': review.id,
+                'final_decision': final_decision
+            })
+
+    except PermissionDenied as e:
+        logger.warning(
+            f"Permission denied for user {request.user.username} "
+            f"during conflict resolution: {str(e)}"
+        )
+        return Response({
+            'error': str(e)
+        }, status=status.HTTP_403_FORBIDDEN)
+    except Exception as e:
+        logger.error(
+            f"Error in resolve_conflict for review {review_id} "
+            f"by user {request.user.username}: {str(e)}"
+        )
+        return Response({
+            'error': 'An error occurred while resolving the conflict. Please try again.'
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
 @api_view(['GET'])
@@ -584,9 +730,11 @@ def review_supervisor_decisions(request, review_id):
     """
     Get detailed supervisor decisions for a specific review
     """
-    if not request.user.groups.filter(name='supervisors').exists():
+    try:
+        validate_supervisor_permissions(request.user)
+    except PermissionDenied as e:
         return Response({
-            'error': 'Only supervisors can view detailed decisions'
+            'error': str(e)
         }, status=status.HTTP_403_FORBIDDEN)
 
     try:
@@ -627,23 +775,18 @@ def review_supervisor_decisions(request, review_id):
 @permission_classes([IsAuthenticated])
 def admin_override_review(request, review_id):
     """
-    Admin direct override - bypass supervisor voting entirely
+    Admin direct override - bypass supervisor voting entirely with race condition protection
     Allows admin to set any review to approved/rejected/pending regardless of current status
     """
-    if not request.user.is_superuser:
+    try:
+        # Validate permissions first
+        validate_superuser_permissions(request.user)
+    except PermissionDenied as e:
         return Response({
-            'error': 'Only superusers can perform admin overrides'
+            'error': str(e)
         }, status=status.HTTP_403_FORBIDDEN)
 
-    try:
-        review = Review.objects.get(id=review_id)
-    except Review.DoesNotExist:
-        return Response({
-            'error': 'Review not found'
-        }, status=status.HTTP_404_NOT_FOUND)
-
-    # 'approved', 'rejected', or 'pending'
-    new_status = request.data.get('status')
+    new_status = request.data.get('status')  # 'approved', 'rejected', or 'pending'
     rejection_reason = request.data.get('rejection_reason', '')
 
     if new_status not in ['approved', 'rejected', 'pending']:
@@ -651,49 +794,91 @@ def admin_override_review(request, review_id):
             'error': 'Status must be "approved", "rejected", or "pending"'
         }, status=status.HTTP_400_BAD_REQUEST)
 
-    # Store the original status for logging
-    original_status = review.status
+    # Use database transaction with row-level locking
+    try:
+        with transaction.atomic():
+            # Get review with lock to prevent race conditions
+            review = get_review_with_lock(review_id)
+            if not review:
+                return Response({
+                    'error': 'Review not found'
+                }, status=status.HTTP_404_NOT_FOUND)
 
-    # If setting back to pending, clear supervisor approvals and reviewed fields
-    if new_status == 'pending':
-        review.clear_supervisor_approvals()
-        review.reviewed_by = None
-        review.reviewed_at = None
-        review.rejection_reason = ''
-    else:
-        # Update review status directly for approved/rejected
-        review.reviewed_by = request.user
-        review.reviewed_at = timezone.now()
+            # Double-check permissions inside transaction
+            validate_superuser_permissions(request.user)
 
-        # Handle rejection reason
-        if new_status == 'rejected' and rejection_reason:
-            review.rejection_reason = f"Admin Override: {rejection_reason}"
-        elif new_status == 'rejected' and not rejection_reason:
-            review.rejection_reason = "Admin Override: No reason provided"
+            # Store the original status for logging
+            original_status = review.status
 
-    # Update status
-    review.status = new_status
+            # Log the override attempt
+            logger.info(
+                f"Superuser {request.user.username} overriding review {review_id} "
+                f"from {original_status} to {new_status}"
+            )
 
-    # Add override metadata
-    if not hasattr(review, 'metadata') or not review.metadata:
-        review.metadata = {}
-    review.metadata['admin_override'] = True
-    review.metadata['original_status'] = original_status
-    review.metadata['override_timestamp'] = timezone.now().isoformat()
+            # If setting back to pending, clear supervisor approvals and reviewed fields
+            if new_status == 'pending':
+                review.clear_supervisor_approvals()
+                review.reviewed_by = None
+                review.reviewed_at = None
+                review.rejection_reason = ''
+            else:
+                # Update review status directly for approved/rejected
+                review.reviewed_by = request.user
+                review.reviewed_at = timezone.now()
 
-    review.save()
+                # Handle rejection reason
+                if new_status == 'rejected' and rejection_reason:
+                    review.rejection_reason = f"Admin Override: {rejection_reason}"
+                elif new_status == 'rejected' and not rejection_reason:
+                    review.rejection_reason = "Admin Override: No reason provided"
 
-    # Update app rating if approved
-    if new_status == 'approved' and hasattr(review, 'app'):
-        review.app.update_average_rating()
+            # Update status
+            review.status = new_status
 
-    # Return the updated review data
-    serializer = ReviewDetailSerializer(review)
+            # Add override metadata
+            if not hasattr(review, 'metadata') or not review.metadata:
+                review.metadata = {}
+            review.metadata['admin_override'] = True
+            review.metadata['original_status'] = original_status
+            review.metadata['override_timestamp'] = timezone.now().isoformat()
+            review.metadata['overridden_by'] = request.user.username
 
-    return Response({
-        'message': f'Admin override successful: Review set to {new_status}',
-        'review_id': review.id,
-        'status': new_status,
-        'original_status': original_status,
-        **serializer.data  # Include full review data
-    })
+            review.save()
+
+            # Update app rating if approved
+            if new_status == 'approved' and hasattr(review, 'app'):
+                review.app.update_average_rating()
+
+            # Return the updated review data
+            serializer = ReviewDetailSerializer(review)
+
+            logger.info(
+                f"Admin override successful for review {review_id}: "
+                f"{original_status} -> {new_status} by {request.user.username}"
+            )
+
+            return Response({
+                'message': f'Admin override successful: Review set to {new_status}',
+                'review_id': review.id,
+                'status': new_status,
+                'original_status': original_status,
+                **serializer.data  # Include full review data
+            })
+
+    except PermissionDenied as e:
+        logger.warning(
+            f"Permission denied for user {request.user.username} "
+            f"during admin override: {str(e)}"
+        )
+        return Response({
+            'error': str(e)
+        }, status=status.HTTP_403_FORBIDDEN)
+    except Exception as e:
+        logger.error(
+            f"Error in admin_override_review for review {review_id} "
+            f"by user {request.user.username}: {str(e)}"
+        )
+        return Response({
+            'error': 'An error occurred while performing the override. Please try again.'
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)

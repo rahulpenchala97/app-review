@@ -156,6 +156,10 @@ class Review(models.Model):
 
     def check_and_finalize_status(self):
         """Check if review should be finalized based on supervisor decisions"""
+        # Ensure we're working with a pending review to prevent race conditions
+        if self.status != 'pending':
+            return self.status
+        
         summary = self.get_approval_summary()
 
         # Check if all supervisors have voted
