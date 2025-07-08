@@ -4,6 +4,7 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
+    atomic = False  # Required for CREATE INDEX CONCURRENTLY
 
     dependencies = [
         ('reviews', '0003_alter_review_status'),
@@ -17,7 +18,7 @@ class Migration(migrations.Migration):
             RETURNS TRIGGER AS $$
             BEGIN
                 -- Prevent approvals on non-pending reviews
-                IF (SELECT status FROM reviews_review WHERE id = NEW.review_id) != 'pending' THEN
+                IF (SELECT status FROM reviews WHERE id = NEW.review_id) != 'pending' THEN
                     RAISE EXCEPTION 'Cannot add approval to non-pending review';
                 END IF;
                 
@@ -40,6 +41,7 @@ class Migration(migrations.Migration):
         
         migrations.RunSQL(
             """
+            DROP TRIGGER IF EXISTS review_approval_constraint_trigger ON reviews_reviewapproval;
             CREATE TRIGGER review_approval_constraint_trigger
                 BEFORE INSERT OR UPDATE ON reviews_reviewapproval
                 FOR EACH ROW
@@ -54,7 +56,7 @@ class Migration(migrations.Migration):
         migrations.RunSQL(
             """
             CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_review_status_created
-            ON reviews_review (status, created_at);
+            ON reviews (status, created_at);
             """,
             reverse_sql="""
             DROP INDEX IF EXISTS idx_review_status_created;
