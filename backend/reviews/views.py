@@ -372,6 +372,12 @@ def reviews_for_moderation(request):
                     approval_summary = review.get_approval_summary()
                     my_decision = review.get_supervisor_decision(request.user)
 
+                    # For blind voting, only show detailed decisions to admins or for finalized reviews
+                    show_detailed_decisions = (
+                        request.user.is_superuser or 
+                        review.status in ['approved', 'rejected', 'conflict']
+                    )
+
                     review_data = {
                         'id': review.id,
                         'content': review.content,
@@ -382,7 +388,8 @@ def reviews_for_moderation(request):
                         'approval_status': review.status,
                         'required_approvals': approval_summary['total_supervisors'] // 2 + 1,
                         'approval_summary': approval_summary,
-                        'my_decision': my_decision
+                        'my_decision': my_decision,
+                        'show_detailed_decisions': show_detailed_decisions
                     }
                     reviews_data.append(review_data)
                 except Exception as e:
@@ -417,15 +424,24 @@ def reviews_for_moderation(request):
                     f"Approval summary for review {review.id}: {approval_summary}")
                 my_decision = review.get_supervisor_decision(request.user)
 
-                # Get detailed supervisor decisions for display
+                # Get detailed supervisor decisions for display (only for admins or finalized reviews)
                 supervisor_decisions = []
-                for approval in review.approvals.select_related('supervisor').all():
-                    supervisor_decisions.append({
-                        'supervisor_name': approval.supervisor.username,
-                        'decision': approval.decision,
-                        'comments': approval.comments,
-                        'created_at': approval.created_at.isoformat(),
-                    })
+                show_detailed_decisions = (
+                    request.user.is_superuser or 
+                    review.status in ['approved', 'rejected', 'conflict']
+                )
+                
+                if show_detailed_decisions:
+                    for approval in review.approvals.select_related('supervisor').all():
+                        supervisor_decisions.append({
+                            'supervisor_name': approval.supervisor.username,
+                            'decision': approval.decision,
+                            'comments': approval.comments,
+                            'created_at': approval.created_at.isoformat(),
+                        })
+                else:
+                    # For blind voting, only show anonymous count
+                    supervisor_decisions = []
 
                 review_data = {
                     'id': review.id,
@@ -439,7 +455,8 @@ def reviews_for_moderation(request):
                     'required_approvals': approval_summary['total_supervisors'] // 2 + 1,
                     'approval_summary': approval_summary,
                     'my_decision': my_decision,
-                    'supervisor_decisions': supervisor_decisions
+                    'supervisor_decisions': supervisor_decisions,
+                    'show_detailed_decisions': show_detailed_decisions
                 }
                 reviews_data.append(review_data)
             except Exception as e:
@@ -729,9 +746,17 @@ def resolve_conflict(request, review_id):
 def review_supervisor_decisions(request, review_id):
     """
     Get detailed supervisor decisions for a specific review
+    Implements blind voting - only show details to admins or for finalized reviews
     """
+    # Allow both supervisors and superusers to access this endpoint
     try:
-        validate_supervisor_permissions(request.user)
+        # Check if user is either a supervisor or superuser
+        if not (request.user.is_superuser or request.user.groups.filter(name='supervisors').exists()):
+            raise PermissionDenied("Supervisor or admin privileges required")
+        
+        # For non-superusers, validate they are active supervisors
+        if not request.user.is_superuser:
+            validate_supervisor_permissions(request.user)
     except PermissionDenied as e:
         return Response({
             'error': str(e)
@@ -744,22 +769,32 @@ def review_supervisor_decisions(request, review_id):
             'error': 'Review not found'
         }, status=status.HTTP_404_NOT_FOUND)
 
-    # Get all supervisor decisions for this review
-    decisions = review.approvals.select_related('supervisor').all()
+    # Check if detailed decisions should be shown (blind voting implementation)
+    show_detailed_decisions = (
+        request.user.is_superuser or 
+        review.status in ['approved', 'rejected', 'conflict']
+    )
 
-    decision_data = []
-    for decision in decisions:
-        decision_data.append({
-            'supervisor_id': decision.supervisor.id,
-            'supervisor_name': decision.supervisor.username,
-            'supervisor_email': decision.supervisor.email,
-            'decision': decision.decision,
-            'comments': decision.comments,
-            'created_at': decision.created_at.isoformat(),
-        })
-
-    # Get overall summary
+    # Get overall summary (always visible)
     approval_summary = review.get_approval_summary()
+    
+    decision_data = []
+    if show_detailed_decisions:
+        # Get all supervisor decisions for this review
+        decisions = review.approvals.select_related('supervisor').all()
+        
+        for decision in decisions:
+            decision_data.append({
+                'supervisor_id': decision.supervisor.id,
+                'supervisor_name': decision.supervisor.username,
+                'supervisor_email': decision.supervisor.email,
+                'decision': decision.decision,
+                'comments': decision.comments,
+                'created_at': decision.created_at.isoformat(),
+            })
+    else:
+        # For blind voting, only show that votes exist but not details
+        decision_data = []
 
     return Response({
         'review_id': review.id,
@@ -767,7 +802,12 @@ def review_supervisor_decisions(request, review_id):
         'approval_summary': approval_summary,
         'required_approvals': approval_summary['total_supervisors'] // 2 + 1,
         'decisions': decision_data,
-        'my_decision': review.get_supervisor_decision(request.user)
+        'my_decision': review.get_supervisor_decision(request.user),
+        'show_detailed_decisions': show_detailed_decisions,
+        'blind_voting_message': (
+            "Detailed voting information is hidden until the review is finalized to ensure unbiased decision-making." 
+            if not show_detailed_decisions else None
+        )
     })
 
 

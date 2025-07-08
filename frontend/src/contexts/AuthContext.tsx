@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import authService, { User } from '../services/auth';
+import { tokenService } from '../services/tokenService';
 
 interface AuthContextType {
   user: User | null;
@@ -31,6 +32,9 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
 
   useEffect(() => {
     const initAuth = async () => {
+      // Initialize token service from localStorage
+      tokenService.initializeFromStorage();
+      
       if (authService.isAuthenticated()) {
         try {
           const userData = await authService.getCurrentUser();
@@ -45,6 +49,11 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     };
 
     initAuth();
+    
+    // Cleanup token service on unmount
+    return () => {
+      tokenService.clearTimer();
+    };
   }, []);
 
   const login = async (username: string, password: string) => {
