@@ -1,15 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import toast from 'react-hot-toast';
+import userService, { User } from '../services/users';
 
-interface User {
-  id: number;
-  username: string;
-  email: string;
-  first_name: string;
-  last_name: string;
-  is_supervisor: boolean;
-}
+
 
 const SupervisorManagement: React.FC = () => {
   const { user: currentUser } = useAuth();
@@ -21,6 +15,7 @@ const SupervisorManagement: React.FC = () => {
   const [bulkActionLoading, setBulkActionLoading] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
 
+
   useEffect(() => {
     fetchUsers();
     fetchSupervisors();
@@ -28,12 +23,7 @@ const SupervisorManagement: React.FC = () => {
 
   const fetchUsers = async () => {
     try {
-      const response = await fetch('/api/users/list/', {
-        headers: {
-          'Authorization': `Bearer ${localStorage.getItem('access_token')}`,
-        },
-      });
-      const data = await response.json();
+      const data = await userService.getUsers();
       setUsers(data.users || []);
     } catch (error) {
       console.error('Failed to fetch users:', error);
@@ -43,12 +33,7 @@ const SupervisorManagement: React.FC = () => {
 
   const fetchSupervisors = async () => {
     try {
-      const response = await fetch('/api/users/supervisors/', {
-        headers: {
-          'Authorization': `Bearer ${localStorage.getItem('access_token')}`,
-        },
-      });
-      const data = await response.json();
+      const data = await userService.getSupervisors();
       setSupervisors(data.supervisors || []);
     } catch (error) {
       console.error('Failed to fetch supervisors:', error);
@@ -61,26 +46,13 @@ const SupervisorManagement: React.FC = () => {
   const promoteToSupervisor = async (userId: number) => {
     setActionLoading(userId);
     try {
-      const response = await fetch('/api/users/promote-supervisor/', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${localStorage.getItem('access_token')}`,
-        },
-        body: JSON.stringify({ user_id: userId }),
-      });
-
-      if (response.ok) {
-        toast.success('User promoted to supervisor successfully');
-        fetchUsers();
-        fetchSupervisors();
-      } else {
-        const error = await response.json();
-        toast.error(error.error || 'Failed to promote user');
-      }
-    } catch (error) {
+      await userService.promoteToSupervisor(userId);
+      toast.success('User promoted to supervisor successfully');
+      fetchUsers();
+      fetchSupervisors();
+    } catch (error: any) {
       console.error('Failed to promote user:', error);
-      toast.error('Failed to promote user');
+      toast.error(error?.response?.data?.error || 'Failed to promote user');
     } finally {
       setActionLoading(null);
     }
@@ -94,28 +66,14 @@ const SupervisorManagement: React.FC = () => {
 
     setBulkActionLoading(true);
     try {
-      const response = await fetch('/api/users/bulk-promote-supervisors/', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${localStorage.getItem('access_token')}`,
-        },
-        body: JSON.stringify({ user_ids: selectedUsers }),
-      });
-
-      if (response.ok) {
-        const data = await response.json();
-        toast.success(data.message);
-        setSelectedUsers([]);
-        fetchUsers();
-        fetchSupervisors();
-      } else {
-        const error = await response.json();
-        toast.error(error.error || 'Failed to promote users');
-      }
-    } catch (error) {
+      const data = await userService.bulkPromoteSupervisors(selectedUsers);
+      toast.success(data.message);
+      setSelectedUsers([]);
+      fetchUsers();
+      fetchSupervisors();
+    } catch (error: any) {
       console.error('Failed to promote users:', error);
-      toast.error('Failed to promote users');
+      toast.error(error?.response?.data?.error || 'Failed to promote users');
     } finally {
       setBulkActionLoading(false);
     }
@@ -124,24 +82,13 @@ const SupervisorManagement: React.FC = () => {
   const revokeSupervisor = async (userId: number) => {
     setActionLoading(userId);
     try {
-      const response = await fetch(`/api/users/${userId}/revoke-supervisor/`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${localStorage.getItem('access_token')}`,
-        },
-      });
-
-      if (response.ok) {
-        toast.success('Supervisor role revoked successfully');
-        fetchUsers();
-        fetchSupervisors();
-      } else {
-        const error = await response.json();
-        toast.error(error.error || 'Failed to revoke supervisor role');
-      }
-    } catch (error) {
+      await userService.revokeSupervisor(userId);
+      toast.success('Supervisor role revoked successfully');
+      fetchUsers();
+      fetchSupervisors();
+    } catch (error: any) {
       console.error('Failed to revoke supervisor:', error);
-      toast.error('Failed to revoke supervisor role');
+      toast.error(error?.response?.data?.error || 'Failed to revoke supervisor role');
     } finally {
       setActionLoading(null);
     }

@@ -1,20 +1,19 @@
 import api from './api';
-import { User } from './auth';
 
 export interface Review {
   id: number;
   app: number;
   app_name: string;
-  user: User | null;
+  user: any; // Replace 'any' with your User type if available
   username?: string;
   title: string | null;
   content: string;
   rating: number;
   tags?: string[];
-  status?: 'pending' | 'approved' | 'rejected' | 'conflict'; // Optional since pending reviews don't include this
+  status?: 'pending' | 'approved' | 'rejected' | 'conflict';
   created_at: string;
   updated_at?: string;
-  reviewed_by?: User;
+  reviewed_by?: any;
   reviewed_at?: string;
   rejection_reason?: string;
   approval_summary?: {
@@ -25,6 +24,30 @@ export interface Review {
   };
   required_approvals?: number;
 }
+
+export interface ConflictedReview {
+  id: number;
+  content: string;
+  rating: number;
+  app_name: string;
+  author: string;
+  created_at: string;
+  status: 'conflicted' | 'escalated';
+  summary: {
+    total_supervisors: number;
+    approved: number;
+    rejected: number;
+    pending: number;
+  };
+  decisions: Array<{
+    supervisor: string;
+    decision: string;
+    comments: string;
+    timestamp: string;
+  }>;
+}
+
+
 
 export interface CreateReviewData {
   app: number;
@@ -48,6 +71,18 @@ export interface ModerateReviewData {
 }
 
 class ReviewService {
+  async getConflictedReviews(): Promise<{ conflicted_reviews: ConflictedReview[] }> {
+    const response = await api.get('/api/reviews/conflicted/');
+    return response.data;
+  }
+
+  async resolveConflict(reviewId: number, final_decision: 'approved' | 'rejected', resolution_notes: string): Promise<any> {
+    const response = await api.post(`/api/reviews/${reviewId}/resolve-conflict/`, {
+      final_decision,
+      resolution_notes,
+    });
+    return response.data;
+  }
   async createReview(data: CreateReviewData): Promise<Review> {
     const response = await api.post('/api/reviews/create/', data);
     return response.data;

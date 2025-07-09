@@ -1,28 +1,10 @@
+
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import toast from 'react-hot-toast';
+import reviewService, { ConflictedReview } from '../services/reviews';
 
-interface ConflictedReview {
-  id: number;
-  content: string;
-  rating: number;
-  app_name: string;
-  author: string;
-  created_at: string;
-  status: 'conflicted' | 'escalated';
-  summary: {
-    total_supervisors: number;
-    approved: number;
-    rejected: number;
-    pending: number;
-  };
-  decisions: Array<{
-    supervisor: string;
-    decision: string;
-    comments: string;
-    timestamp: string;
-  }>;
-}
+
 
 const ConflictResolutionPage: React.FC = () => {
   const { user: currentUser } = useAuth();
@@ -41,12 +23,7 @@ const ConflictResolutionPage: React.FC = () => {
   const fetchConflictedReviews = async () => {
     setIsLoading(true);
     try {
-      const response = await fetch('/api/reviews/conflicted/', {
-        headers: {
-          'Authorization': `Bearer ${localStorage.getItem('access_token')}`,
-        },
-      });
-      const data = await response.json();
+      const data = await reviewService.getConflictedReviews();
       setConflictedReviews(data.conflicted_reviews || []);
     } catch (error) {
       console.error('Failed to fetch conflicted reviews:', error);
@@ -59,31 +36,14 @@ const ConflictResolutionPage: React.FC = () => {
   const resolveConflict = async (reviewId: number, decision: 'approved' | 'rejected', notes: string) => {
     setActionLoading(reviewId);
     try {
-      const response = await fetch(`/api/reviews/${reviewId}/resolve-conflict/`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${localStorage.getItem('access_token')}`,
-        },
-        body: JSON.stringify({
-          final_decision: decision,
-          resolution_notes: notes,
-        }),
-      });
-
-      if (response.ok) {
-        const data = await response.json();
-        toast.success(data.message);
-        fetchConflictedReviews();
-        setShowResolutionModal(false);
-        setResolutionNotes('');
-      } else {
-        const error = await response.json();
-        toast.error(error.error || 'Failed to resolve conflict');
-      }
-    } catch (error) {
+      const data = await reviewService.resolveConflict(reviewId, decision, notes);
+      toast.success(data.message);
+      fetchConflictedReviews();
+      setShowResolutionModal(false);
+      setResolutionNotes('');
+    } catch (error: any) {
       console.error('Failed to resolve conflict:', error);
-      toast.error('Failed to resolve conflict');
+      toast.error(error?.response?.data?.error || 'Failed to resolve conflict');
     } finally {
       setActionLoading(null);
     }
