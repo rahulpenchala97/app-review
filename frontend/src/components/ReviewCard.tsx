@@ -189,39 +189,6 @@ const ReviewCard: React.FC<ReviewCardProps> = ({
         </div>
       )}
 
-      {/* Debug: Always show this to check if admin override should be visible */}
-      <div className="mt-4 pt-4 border-t border-gray-200">
-        <div className="bg-yellow-50 border border-yellow-200 rounded-md p-3 mb-3">
-          <p className="text-sm text-yellow-700 font-medium">
-            DEBUG: Admin Override Check
-          </p>
-          <p className="text-xs text-yellow-600">
-            showAdminOverride: {String(showAdminOverride)} |
-            onAdminOverride: {String(!!onAdminOverride)} |
-            shouldShow: {String(showAdminOverride && !!onAdminOverride)}
-          </p>
-          <p className="text-xs text-yellow-600 mt-1">
-            Props received: showAdminOverride={String(showAdminOverride)},
-            onAdminOverride={onAdminOverride ? 'function' : 'undefined'}
-          </p>
-          {!showAdminOverride && (
-            <p className="text-xs text-red-600 mt-1">
-              ❌ showAdminOverride is false - user may not be superuser
-            </p>
-          )}
-          {!onAdminOverride && (
-            <p className="text-xs text-red-600 mt-1">
-              ❌ onAdminOverride is missing - handler function not passed
-            </p>
-          )}
-          {showAdminOverride && onAdminOverride && (
-            <p className="text-xs text-green-600 mt-1">
-              ✅ Both conditions met - admin override should be visible below
-            </p>
-          )}
-        </div>
-      </div>
-
       {showAdminOverride && onAdminOverride && (
         <div className="mt-4 pt-4 border-t border-gray-200">
           <div className="bg-blue-50 border border-blue-200 rounded-md p-3 mb-3">

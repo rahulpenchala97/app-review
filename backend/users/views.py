@@ -3,7 +3,10 @@ from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import AllowAny, IsAuthenticated, IsAdminUser
 from rest_framework.response import Response
 from rest_framework import status
+from rest_framework.views import APIView
 from rest_framework_simplejwt.tokens import RefreshToken
+from rest_framework_simplejwt.views import TokenRefreshView
+from rest_framework_simplejwt.exceptions import TokenError, InvalidToken
 from app_review_project.pagination import StandardResultsSetPagination
 from .models import UserProfile
 from .serializers import (
@@ -13,11 +16,16 @@ from .serializers import (
 
 
 def get_tokens_for_user(user):
-    """Generate JWT tokens for user"""
+    """Generate JWT tokens with expiry information for user"""
     refresh = RefreshToken.for_user(user)
+    access_token = refresh.access_token
+    
     return {
         'refresh': str(refresh),
-        'access': str(refresh.access_token),
+        'access': str(access_token),
+        'access_expires_at': access_token['exp'],
+        'refresh_expires_at': refresh['exp'],
+        'expires_in': 15 * 60,  # 15 minutes in seconds
     }
 
 
@@ -81,6 +89,33 @@ def user_login(request):
         serializer.errors,
         status=status.HTTP_400_BAD_REQUEST
     )
+
+
+class CustomTokenRefreshView(TokenRefreshView):
+    """
+    Custom token refresh view that includes expiry information in response.
+    """
+    def post(self, request, *args, **kwargs):
+        try:
+            response = super().post(request, *args, **kwargs)
+            
+            if response.status_code == 200:
+                # Add expiry information to refresh response
+                refresh_token = RefreshToken(request.data['refresh'])
+                access_token = refresh_token.access_token
+                
+                response.data.update({
+                    'access_expires_at': access_token['exp'],
+                    'expires_in': 15 * 60,  # 15 minutes in seconds
+                })
+                
+            return response
+            
+        except (TokenError, InvalidToken) as e:
+            return Response(
+                {'detail': 'Token is invalid or expired'},
+                status=status.HTTP_401_UNAUTHORIZED
+            )
 
 
 @api_view(['POST'])

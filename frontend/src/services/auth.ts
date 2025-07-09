@@ -1,4 +1,5 @@
 import api from './api';
+import { tokenService } from './tokenService';
 
 export interface User {
   id: number;
@@ -30,29 +31,29 @@ export interface AuthResponse {
   tokens: {
     access: string;
     refresh: string;
+    access_expires_at: number;
+    expires_in: number;
   };
 }
 
 class AuthService {
   async login(data: LoginData): Promise<AuthResponse> {
-    const response = await api.post('/api/auth/login/', data);
+    const response = await api.post('/api/users/login/', data);
     const { user, tokens } = response.data;
     
-    // Store tokens in localStorage
-    localStorage.setItem('access_token', tokens.access);
-    localStorage.setItem('refresh_token', tokens.refresh);
+    // Store tokens using token service for automatic refresh
+    tokenService.setTokens(tokens);
     localStorage.setItem('user', JSON.stringify(user));
     
     return response.data;
   }
 
   async register(data: RegisterData): Promise<AuthResponse> {
-    const response = await api.post('/api/auth/register/', data);
+    const response = await api.post('/api/users/register/', data);
     const { user, tokens } = response.data;
     
-    // Store tokens in localStorage
-    localStorage.setItem('access_token', tokens.access);
-    localStorage.setItem('refresh_token', tokens.refresh);
+    // Store tokens using token service for automatic refresh
+    tokenService.setTokens(tokens);
     localStorage.setItem('user', JSON.stringify(user));
     
     return response.data;
@@ -60,16 +61,15 @@ class AuthService {
 
   async logout(): Promise<void> {
     try {
-      const refreshToken = localStorage.getItem('refresh_token');
+      const refreshToken = tokenService.getRefreshToken();
       if (refreshToken) {
-        await api.post('/api/auth/logout/', { refresh: refreshToken });
+        await api.post('/api/users/logout/', { refresh: refreshToken });
       }
     } catch (error) {
       console.error('Logout error:', error);
     } finally {
       // Clear all stored data
-      localStorage.removeItem('access_token');
-      localStorage.removeItem('refresh_token');
+      tokenService.clearTokens();
       localStorage.removeItem('user');
     }
   }
@@ -80,7 +80,7 @@ class AuthService {
   }
 
   isAuthenticated(): boolean {
-    return !!localStorage.getItem('access_token');
+    return !!tokenService.getAccessToken() && !tokenService.isTokenExpired();
   }
 
   getUser(): User | null {

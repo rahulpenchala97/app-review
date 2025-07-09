@@ -4,6 +4,7 @@ import toast from 'react-hot-toast';
 import api from '../services/api';
 import reviewService from '../services/reviews';
 import Pagination from '../components/Pagination';
+import ReviewVotingDetails from '../components/ReviewVotingDetails';
 
 interface Review {
   id: number;
@@ -27,6 +28,8 @@ interface Review {
     comments: string;
     created_at: string;
   }[];
+  show_detailed_decisions?: boolean;
+  blind_voting_message?: string;
 }
 
 const ReviewModerationPage: React.FC = () => {
@@ -40,6 +43,8 @@ const ReviewModerationPage: React.FC = () => {
   const [decisionComments, setDecisionComments] = useState('');
   const [showDecisionModal, setShowDecisionModal] = useState(false);
   const [decisionType, setDecisionType] = useState<'approved' | 'rejected'>('approved');
+  const [showVotingDetails, setShowVotingDetails] = useState(false);
+  const [votingDetailsReviewId, setVotingDetailsReviewId] = useState<number | null>(null);
   
   // Pagination state
   const [currentPage, setCurrentPage] = useState(1);
@@ -150,6 +155,16 @@ const ReviewModerationPage: React.FC = () => {
     setDecisionType(decision);
     setShowDecisionModal(true);
     setDecisionComments('');
+  };
+
+  const openVotingDetails = (reviewId: number) => {
+    setVotingDetailsReviewId(reviewId);
+    setShowVotingDetails(true);
+  };
+
+  const closeVotingDetails = () => {
+    setShowVotingDetails(false);
+    setVotingDetailsReviewId(null);
   };
 
   const getStatusColor = (status: string) => {
@@ -291,8 +306,23 @@ const ReviewModerationPage: React.FC = () => {
               <div className="bg-gray-50 rounded-lg p-4 mb-4">
                 <div className="flex items-center justify-between mb-3">
                   <h4 className="font-medium text-gray-900">Approval Status</h4>
-                  <div className="text-sm text-gray-600">
-                    {review.approval_summary.approved + review.approval_summary.rejected} / {review.approval_summary.total_supervisors} supervisors voted
+                  <div className="flex items-center space-x-3">
+                    <div className="text-sm text-gray-600">
+                      {review.approval_summary.approved + review.approval_summary.rejected} / {review.approval_summary.total_supervisors} supervisors voted
+                    </div>
+                    {/* View Voting Details Button - only show for admins or finalized reviews */}
+                    {(user?.is_superuser || review.show_detailed_decisions) && (
+                      <button
+                        onClick={() => openVotingDetails(review.id)}
+                        className="text-blue-600 hover:text-blue-800 text-sm font-medium transition-colors flex items-center space-x-1"
+                      >
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                        </svg>
+                        <span>View Details</span>
+                      </button>
+                    )}
                   </div>
                 </div>
 
@@ -336,7 +366,7 @@ const ReviewModerationPage: React.FC = () => {
               </div>
 
               {/* Detailed Supervisor Decisions */}
-              {review.supervisor_decisions && review.supervisor_decisions.length > 0 && (
+              {review.show_detailed_decisions && review.supervisor_decisions && review.supervisor_decisions.length > 0 && (
                 <div className="bg-white border border-gray-200 rounded-lg p-4 mb-4">
                   <h4 className="font-medium text-gray-900 mb-3">Supervisor Decisions</h4>
                   <div className="space-y-3">
@@ -364,6 +394,37 @@ const ReviewModerationPage: React.FC = () => {
                       </div>
                     ))}
                   </div>
+                </div>
+              )}
+
+              {/* Blind Voting Message */}
+              {!review.show_detailed_decisions && review.approval_status === 'pending' && (
+                <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-4">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center space-x-2">
+                      <svg className="w-5 h-5 text-blue-600" fill="currentColor" viewBox="0 0 20 20">
+                        <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
+                      </svg>
+                      <h4 className="font-medium text-blue-900">Blind Voting Active</h4>
+                    </div>
+                    {user?.is_superuser && (
+                      <button
+                        onClick={() => openVotingDetails(review.id)}
+                        className="text-blue-700 hover:text-blue-900 text-sm font-medium underline"
+                      >
+                        Admin: View Details
+                      </button>
+                    )}
+                  </div>
+                  <p className="text-sm text-blue-800 mt-2">
+                    Detailed voting information is hidden until the review is finalized to ensure unbiased decision-making. 
+                    You can see the vote counts above, but individual supervisor decisions and comments remain private.
+                  </p>
+                  {user?.is_superuser && (
+                    <p className="text-xs text-blue-600 mt-2 font-medium">
+                      As an admin, you can view detailed decisions, but this information is hidden from supervisors during voting.
+                    </p>
+                  )}
                 </div>
               )}
 
@@ -470,6 +531,19 @@ const ReviewModerationPage: React.FC = () => {
                 {decisionType === 'approved' ? 'Approve' : 'Reject'} Review
               </h3>
               
+              {/* Blind Voting Notice */}
+              <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 mb-4">
+                <div className="flex items-center space-x-2">
+                  <svg className="w-4 h-4 text-blue-600" fill="currentColor" viewBox="0 0 20 20">
+                    <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
+                  </svg>
+                  <span className="text-sm font-medium text-blue-900">Blind Voting</span>
+                </div>
+                <p className="text-xs text-blue-800 mt-1">
+                  Your decision and comments will be private until the review is finalized. Other supervisors cannot see your vote.
+                </p>
+              </div>
+              
               <div className="mb-4">
                 <p className="text-sm text-gray-600 mb-2">Review content:</p>
                 <div className="bg-gray-50 rounded-lg p-3">
@@ -512,6 +586,15 @@ const ReviewModerationPage: React.FC = () => {
             </div>
           </div>
         </div>
+      )}
+
+      {/* Voting Details Modal */}
+      {votingDetailsReviewId && (
+        <ReviewVotingDetails
+          reviewId={votingDetailsReviewId}
+          isOpen={showVotingDetails}
+          onClose={closeVotingDetails}
+        />
       )}
     </div>
   );

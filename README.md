@@ -75,7 +75,7 @@ app-review/
 - Role-based permissions (User/Supervisor/Admin)
 - Multi-supervisor review moderation workflow
 - Admin override capabilities
-- Smart search with fuzzy matching
+- PostgreSQL full-text search with fuzzy matching
 - Comprehensive API documentation
 
 ### **Frontend (React TypeScript)**
@@ -89,8 +89,6 @@ app-review/
 - Docker containerization
 - Automated database migrations
 - Health checks & service dependencies
-- Hot reload development environment
-- Cross-platform compatibility
 
 ## � User Roles & Permissions
 
@@ -99,13 +97,6 @@ app-review/
 | **User** | Browse apps, submit reviews, view own reviews |
 | **Supervisor** | All user permissions + moderate reviews via voting |
 | **Admin** | All permissions + override any review status |
-
-## 📊 Demo Data
-
-- **9,000+ real apps** from Google Play Store
-- **Categories**: Productivity, Social, Games, etc.
-- **Pre-configured users** for testing different roles
-- **Sample reviews** demonstrating moderation workflow
 
 ## 🛠️ Development
 
@@ -135,14 +126,6 @@ curl http://localhost:8000/api/apps/
 
 # Authentication required endpoints
 curl -H "Authorization: Bearer <token>" http://localhost:8000/api/reviews/
-```
 
-## � Technical Highlights
 
-- **Security**: JWT authentication, CORS configuration, input validation
-- **Performance**: Database indexing, pagination, lazy loading
-- **Scalability**: Modular architecture, containerized deployment
-- **Code Quality**: TypeScript, ESLint, comprehensive error handling
-- **Testing**: API endpoints testable via admin interface
 
----
