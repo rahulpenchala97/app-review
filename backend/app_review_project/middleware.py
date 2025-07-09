@@ -1,3 +1,19 @@
+class RequestLoggingMiddleware(MiddlewareMixin):
+    """
+    Middleware to log each request's method, path, user, and response status code.
+    """
+    def process_request(self, request):
+        user = getattr(request, 'user', None)
+        username = user.username if user and user.is_authenticated else 'Anonymous'
+        logger.info(f"Request: {request.method} {request.path} by {username}")
+        # No response returned here; continue processing
+        return None
+
+    def process_response(self, request, response):
+        user = getattr(request, 'user', None)
+        username = user.username if user and user.is_authenticated else 'Anonymous'
+        logger.info(f"Response: {request.method} {request.path} by {username} - Status {response.status_code}")
+        return response
 """
 Middleware to add additional security checks for review system operations.
 """
